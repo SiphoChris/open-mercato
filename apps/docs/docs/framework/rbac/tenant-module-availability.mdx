@@ -7,7 +7,7 @@ description: Deny, per tenant, the features of enabled modules — for example m
 
 Modules are enabled per deployment in `modules.ts`. A multi-tenant app often needs to vary that per tenant: a module belongs to some subscription plans but not others, or it only applies to some kinds of tenant. Register a **tenant module availability provider** and the platform denies the features of a module the provider marks unavailable for a tenant, wherever those features are checked by the RBAC services in that tenant.
 
-Without a provider nothing changes.
+Without a provider nothing changes, except that confirming an AI pending action now also re-checks the tool's own `requiredFeatures` (a fix).
 
 ## What it covers
 
@@ -18,6 +18,7 @@ For a tenant where a module is unavailable, its features are denied — includin
 - `POST /api/auth/feature-check` and `POST /api/customer_accounts/portal/feature-check`;
 - every `rbacService.userHasAllFeatures` / `customerRbacService.userHasAllFeatures` check, and CRUD interceptors, enrichers, mutation guards and command interceptors that declare features;
 - audit-log undo and redo of the module's commands;
+- AI assistant tool execution (including what tool handlers such as the meta tools see), tool and agent lists, agent policy, agent runs, pending-action confirmation, Code Mode and MCP servers. A tool or agent registered by an unavailable module is refused whatever feature guards it. The MCP servers re-read availability for every call; the dev MCP server (`mcp:dev`) fixes its registered tool list when it starts. The HTTP MCP server's `tools/list` can still include tools of unavailable modules, because it learns the caller only per call; calling such a tool is refused.
 
 Availability is evaluated per tenant in scope: a super admin acting in a tenant where the module is unavailable cannot use it there, and still can in tenants where it is available. When a check carries no tenant, the principal's own tenant is used. Stored grants are never modified.
 
@@ -28,8 +29,8 @@ This is **feature-guard enforcement, not data isolation and not an entitlement b
 - the module's subscribers, workers, schedules, webhooks and CLI commands;
 - routes and pages that declare no feature guard, and enrichers or interceptors that declare no `features`;
 - server code that authorizes from an already-loaded ACL snapshot without passing the unavailable set — search, dashboard widget lists, entities, communication channels, notification recipients, documents, staff readers, workflow portal tasks, the organization switcher and some enterprise modules;
-- the AI assistant's tools, agents and MCP servers (follow-up);
-- audit-log snapshot reads and attachments fetched by id.
+- audit-log snapshot reads and attachments fetched by id;
+- the Discord channel's agent directory, which can offer an agent of an unavailable module (running it is still refused).
 
 Gate anything a tenant must not reach with features, and keep data separation in your own module where you need it.
 

@@ -103,8 +103,8 @@ An app can register a provider under the new DI key `tenantModuleAvailabilityPro
 `@open-mercato/shared/security/tenantModuleAvailability`) to deny, per tenant, the features of modules it
 marks unavailable: in page and API route guards (including a module's own routes and pages guarded by
 another module's feature), navigation, the feature-check endpoints and the realm RBAC services,
-audit-log undo/redo, including for super admins and wildcard grants. It is
-feature-guard enforcement, not data isolation. Without a provider nothing changes. See
+audit-log undo/redo, AI tool and agent gating, including for super admins and wildcard grants. It is
+feature-guard enforcement, not data isolation. Without a provider nothing changes, except that confirming an AI pending action now also re-checks the tool's own `requiredFeatures` (a fix). See
 `apps/docs/docs/framework/rbac/tenant-module-availability.mdx`.
 
 Additive surfaces, no action required:
@@ -115,14 +115,28 @@ Additive surfaces, no action required:
 - Widened types and signatures: `FeaturePolicySubject.unavailableModuleIds?`; `resolveEffectiveFeatures(grants,
   options?)`; new `filterGrantsByModuleAvailability`; optional trailing constructor parameters and
   `getUnavailableModuleIds` on `RbacService` and `CustomerRbacService`; the app's `checkAuthorization` gains an
-  optional `routeModuleId` parameter.
+  optional `routeModuleId` parameter; AI `hasRequiredFeatures(…, rbacService?, unavailableModuleIds?)`,
+  new `loadUnavailableModuleIds` and `resolveUnavailableModuleIdsFromContainer`, the shared listing and execution
+  predicates `isToolAccessible` and `isAgentAccessible` in `ai_assistant/lib/ai-access` (a tool or agent registered
+  for an unavailable module is refused whatever feature guards it), and optional
+  `unavailableModuleIds` on the AI tool, chat, agent-policy, MCP auth, pending-action and tool-search
+  contexts. Tests that mock `ai_assistant/lib/auth` with an object literal must add the two new exports.
+  `checkAgentPolicy` is synchronous and `executePendingActionConfirm` trusts the rechecks run before it, so
+  neither loads the unavailable set on its own: a caller outside the platform's entry points must pass
+  `unavailableModuleIds` (from `loadUnavailableModuleIds`) or go through `resolveAiAgentTools`, `executeTool`
+  and `runPendingActionRechecks`, which load it from the container when it is missing. `McpToolRegistry` gains an
+  optional `getToolModuleId?(name)`; custom registries that omit it give their tools no owning module. Fix:
+  pending-action confirmation now also re-checks the tool itself (`checkToolAccess`, new code
+  `tool_features_denied`, 403): its module must be available and the caller must still hold its
+  `requiredFeatures`, which confirmation did not check before.
 - Server code that authorizes from a loaded ACL snapshot with `authorizeFeatures` should pass
   `unavailableModuleIds: await rbacService.getUnavailableModuleIds(tenantId, userId)` (or call
   `rbacService.userHasAllFeatures`) to honour a registered provider.
 - The cached admin navigation key gains an `:unavailable=<ids>` suffix only while modules are unavailable to
   the tenant.
 - The reference app and the create-app template gain the test-only module `module_availability_probe`
-  (three routes that answer 404 outside `OM_TEST_MODE` and an undoable command that persists nothing), like `ratelimit_probe`.
+  (three routes that answer 404 outside `OM_TEST_MODE` and an undoable command that persists nothing, and an AI tool
+  exported only under `OM_TEST_MODE`), like `ratelimit_probe`.
 
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
