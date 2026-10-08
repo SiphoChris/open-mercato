@@ -115,6 +115,7 @@ function toolHandlerContext(ctx: PrepareMutationContext): McpToolContext {
     container: ctx.container,
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,
+    unavailableModuleIds: ctx.unavailableModuleIds,
   }
 }
 

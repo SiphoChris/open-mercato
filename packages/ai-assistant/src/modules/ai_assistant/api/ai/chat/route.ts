@@ -33,6 +33,7 @@ import { AiAgentRuntimeOverrideRepository } from '../../../data/repositories/AiA
 import { createConversationStorage } from '../../../lib/conversation-storage'
 import { checkAiChatRateLimit } from '../../../lib/rate-limit'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { loadUnavailableModuleIds } from '../../../lib/auth'
 
 const logger = createLogger('ai_assistant')
 
@@ -465,12 +466,14 @@ export async function POST(req: NextRequest): Promise<Response> {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     })
+    const unavailableModuleIds = await loadUnavailableModuleIds(rbacService, auth.tenantId, auth.sub)
 
     const decision = checkAgentPolicy({
       agentId,
       authContext: {
         userFeatures: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
+        unavailableModuleIds,
       },
       requestedExecutionMode: 'chat',
       // TODO(step-3.7): resolve attachmentIds -> media types via attachment-bridge
@@ -681,6 +684,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         userId: auth.sub,
         features: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
+        unavailableModuleIds,
       },
       container,
       requestOverride,

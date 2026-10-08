@@ -6,6 +6,7 @@ import { registerMcpTool, getToolRegistry, toolRegistry, unregisterMcpTool } fro
 import {
   applyToolOverrideMap,
   composeToolOverrideMap,
+  snapshotProgrammaticOverrides,
   type AiToolOverrideConfigEntry,
 } from './ai-overrides'
 import type { McpToolDefinition, McpToolContext } from './types'
@@ -130,6 +131,11 @@ export function registerGeneratedAiToolEntries(entries: AiToolConfigEntry[]): nu
  *
  * Safe to call when no override file is present (the entries array is
  * empty); it is a no-op then.
+ *
+ * A tool that only an override file adds (its name is not in the base
+ * registry, and no `modules.ts`-tier or programmatic override supersedes it)
+ * is registered under the module of the file that declared it, so the tool
+ * keeps an owning module for per-tenant module availability.
  */
 export function applyAiToolOverrideEntries(
   entries: readonly AiToolOverrideConfigEntry[],
@@ -138,6 +144,17 @@ export function applyAiToolOverrideEntries(
   if (Object.keys(overrideMap).length === 0) return
   const baseTools = toolRegistry.getTools() as Map<string, McpToolDefinition>
   const overridden = applyToolOverrideMap<McpToolDefinition>(baseTools, overrideMap)
+  const supersedingOverrides = snapshotProgrammaticOverrides()
+  const fileOverrideModules = new Map<string, string>()
+  for (const entry of entries) {
+    if (!entry?.overrides || typeof entry.overrides !== 'object' || typeof entry.moduleId !== 'string') continue
+    for (const name of Object.keys(entry.overrides)) fileOverrideModules.set(name, entry.moduleId)
+  }
+  const resolveAddedToolModule = (name: string): string | undefined => {
+    if (baseTools.has(name)) return undefined
+    if (name in supersedingOverrides.tools || name in supersedingOverrides.modulesConfigTools) return undefined
+    return fileOverrideModules.get(name)
+  }
   for (const [name, value] of Object.entries(overrideMap)) {
     if (value === null) {
       unregisterMcpTool(name)
@@ -147,7 +164,7 @@ export function applyAiToolOverrideEntries(
     const next = overridden.get(name)
     if (!next) continue
     // Re-register through the public path so moduleMap stays consistent.
-    registerMcpTool(next as McpToolDefinition, { moduleId: 'ai_overrides' })
+    registerMcpTool(next as McpToolDefinition, { moduleId: resolveAddedToolModule(name) ?? 'ai_overrides' })
     logger.info('Tool replaced by override', { toolName: name })
   }
 }

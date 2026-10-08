@@ -18,6 +18,8 @@ export type McpAuthSuccess = {
   userId: string
   features: string[]
   isSuperAdmin: boolean
+  /** Modules unavailable to the key's tenant (per-tenant module availability). */
+  unavailableModuleIds?: readonly string[]
 }
 
 /**
@@ -84,6 +86,7 @@ export async function authenticateMcpRequest(
         features: string[]
         organizations: string[] | null
       }>
+      getUnavailableModuleIds?: (tenantId: string | null, userId?: string | null) => Promise<string[]>
     }
 
     const acl = await rbacService.loadAcl(userId, {
@@ -107,6 +110,7 @@ export async function authenticateMcpRequest(
       userId,
       features: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      unavailableModuleIds: await loadUnavailableModuleIds(rbacService, apiKey.tenantId ?? null, userId),
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -129,19 +133,61 @@ export async function authenticateMcpRequest(
  * @param userFeatures - List of features the user has
  * @param isSuperAdmin - Whether the user is a super admin
  * @param rbacService - Optional RbacService to delegate feature matching
+ * @param unavailableModuleIds - Modules unavailable to the caller's tenant
+ *   (per-tenant module availability); their features are denied even to a
+ *   super admin. Load them with `loadUnavailableModuleIds`.
  * @returns True if user has access
  */
 export function hasRequiredFeatures(
   requiredFeatures: string[] | undefined,
   userFeatures: string[],
   isSuperAdmin: boolean,
-  rbacService?: RbacService
+  rbacService?: RbacService,
+  unavailableModuleIds?: readonly string[],
 ): boolean {
   void rbacService
   return authorizeFeatures(requiredFeatures ?? [], {
     grantedFeatures: userFeatures,
     unrestricted: isSuperAdmin,
+    unavailableModuleIds,
   })
+}
+
+type UnavailableModuleIdsReader = {
+  getUnavailableModuleIds?: (tenantId: string | null, userId?: string | null) => Promise<string[]>
+}
+
+/**
+ * Module ids unavailable to the caller's tenant through the optional per-tenant
+ * module availability provider; empty when none is registered.
+ */
+export async function loadUnavailableModuleIds(
+  rbacService: UnavailableModuleIdsReader | null | undefined,
+  tenantId: string | null | undefined,
+  userId: string | null | undefined,
+): Promise<string[]> {
+  if (!rbacService || typeof rbacService.getUnavailableModuleIds !== 'function') return []
+  return rbacService.getUnavailableModuleIds(tenantId ?? null, userId ?? null)
+}
+
+type RbacContainer = {
+  resolve: (name: string) => unknown
+  hasRegistration?: (name: string) => boolean
+}
+
+/**
+ * Fail-safe default for callers that build an AI context without
+ * `unavailableModuleIds`: reads the set from the container's `rbacService`.
+ */
+export async function resolveUnavailableModuleIdsFromContainer(
+  container: RbacContainer | null | undefined,
+  tenantId: string | null | undefined,
+  userId: string | null | undefined,
+): Promise<string[]> {
+  if (!container || typeof container.resolve !== 'function') return []
+  if (typeof container.hasRegistration !== 'function' || !container.hasRegistration('rbacService')) return []
+  const rbacService = container.resolve('rbacService') as UnavailableModuleIdsReader | null | undefined
+  return loadUnavailableModuleIds(rbacService, tenantId, userId)
 }
 
 /**

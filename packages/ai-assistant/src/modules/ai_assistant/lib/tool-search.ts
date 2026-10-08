@@ -1,6 +1,6 @@
 import type { SearchService } from '@open-mercato/search/service'
 import type { SearchStrategyId, IndexableRecord } from '@open-mercato/search/types'
-import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { isToolAccessible } from './ai-access'
 import type { McpToolRegistry, McpToolDefinition } from './types'
 import {
   TOOL_ENTITY_ID,
@@ -59,6 +59,8 @@ export type ToolSearchOptions = {
   userFeatures?: string[]
   /** Is user a super admin (bypasses ACL) */
   isSuperAdmin?: boolean
+  /** Modules unavailable to the tenant (per-tenant module availability) */
+  unavailableModuleIds?: readonly string[]
   /** Minimum score threshold (default: 0.2) */
   minScore?: number
 }
@@ -127,6 +129,7 @@ export class ToolSearchService {
       strategies,
       userFeatures = [],
       isSuperAdmin = false,
+      unavailableModuleIds,
       minScore = TOOL_SEARCH_CONFIG.minScore,
     } = options
 
@@ -151,7 +154,12 @@ export class ToolSearchService {
       const moduleId = metadata?.moduleId as string | undefined
 
       // Filter by user's feature access
-      if (!this.hasFeatureAccess(requiredFeatures, userFeatures, isSuperAdmin)) {
+      const accessible = isToolAccessible(
+        { name: result.recordId, requiredFeatures },
+        { userFeatures, isSuperAdmin, unavailableModuleIds },
+        this.toolRegistry,
+      )
+      if (!accessible) {
         continue
       }
 
@@ -290,14 +298,4 @@ export class ToolSearchService {
   /**
    * Check if user has required features to access a tool.
    */
-  private hasFeatureAccess(
-    requiredFeatures: string[] | undefined,
-    userFeatures: string[],
-    isSuperAdmin: boolean
-  ): boolean {
-    return authorizeFeatures(requiredFeatures ?? [], {
-      grantedFeatures: userFeatures,
-      unrestricted: isSuperAdmin,
-    })
-  }
 }

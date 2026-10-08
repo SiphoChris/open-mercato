@@ -34,6 +34,8 @@ jest.mock('../tool-loader', () => ({
 jest.mock('../auth', () => ({
   authenticateMcpRequest: jest.fn(),
   hasRequiredFeatures: jest.fn(() => true),
+  loadUnavailableModuleIds: jest.fn(async () => []),
+  resolveUnavailableModuleIdsFromContainer: jest.fn(async () => []),
 }))
 
 function registerTool(overrides: Partial<AiToolDefinition> & { name: string }): void {

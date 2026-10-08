@@ -5,7 +5,8 @@ import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
-import { authenticateMcpRequest, hasRequiredFeatures, type McpAuthSuccess } from './auth'
+import { authenticateMcpRequest, resolveUnavailableModuleIdsFromContainer, type McpAuthSuccess } from './auth'
+import { isToolAccessible } from './ai-access'
 import type { McpToolContext, McpClientInterface, ToolInfo, ToolResult, McpToolDefinition } from './types'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -33,6 +34,7 @@ export type AuthContextOptions = {
     userId: string
     userFeatures: string[]
     isSuperAdmin: boolean
+    unavailableModuleIds?: readonly string[]
   }
 }
 
@@ -71,6 +73,7 @@ export class InProcessMcpClient implements McpClientInterface {
       container,
       userFeatures: auth.features,
       isSuperAdmin: auth.isSuperAdmin,
+      unavailableModuleIds: auth.unavailableModuleIds,
     }
   }
 
@@ -105,6 +108,8 @@ export class InProcessMcpClient implements McpClientInterface {
       userId: authContext.userId,
       features: authContext.userFeatures,
       isSuperAdmin: authContext.isSuperAdmin,
+      unavailableModuleIds: authContext.unavailableModuleIds
+        ?? await resolveUnavailableModuleIdsFromContainer(container, authContext.tenantId, authContext.userId),
     }
 
     return new InProcessMcpClient(syntheticAuth, container)
@@ -131,9 +136,13 @@ export class InProcessMcpClient implements McpClientInterface {
     const tools = Array.from(registry.getTools().values())
 
     const rbacService = this.container.resolve<RbacService>('rbacService')
-    const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, this.auth.features, this.auth.isSuperAdmin, rbacService)
-    )
+    const subject = {
+      userFeatures: this.auth.features,
+      isSuperAdmin: this.auth.isSuperAdmin,
+      unavailableModuleIds: this.auth.unavailableModuleIds,
+      rbacService,
+    }
+    const accessibleTools = tools.filter((tool) => isToolAccessible(tool, subject, registry))
 
     return accessibleTools.map((tool) => ({
       name: tool.name,
@@ -154,9 +163,13 @@ export class InProcessMcpClient implements McpClientInterface {
     const tools = Array.from(registry.getTools().values())
 
     const rbacService = this.container.resolve<RbacService>('rbacService')
-    const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, this.auth.features, this.auth.isSuperAdmin, rbacService)
-    )
+    const subject = {
+      userFeatures: this.auth.features,
+      isSuperAdmin: this.auth.isSuperAdmin,
+      unavailableModuleIds: this.auth.unavailableModuleIds,
+      rbacService,
+    }
+    const accessibleTools = tools.filter((tool) => isToolAccessible(tool, subject, registry))
 
     return accessibleTools.map((tool) => ({
       name: tool.name,

@@ -8,7 +8,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { llmProviderRegistry } from '../../../../../lib/llm-registry'
 import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
-import { hasRequiredFeatures } from '../../../../../lib/auth'
+import { loadUnavailableModuleIds } from '../../../../../lib/auth'
+import { isAgentAccessible } from '../../../../../lib/ai-access'
 import { createModelFactory, resolveAllowRuntimeOverride } from '../../../../../lib/model-factory'
 import {
   hasAllowlistSnapshotRestrictions,
@@ -121,17 +122,21 @@ export async function GET(
     }
 
     const agentFeatures = agent.requiredFeatures ?? []
-    if (agentFeatures.length > 0) {
-      const permitted = hasRequiredFeatures(agentFeatures, acl.features, acl.isSuperAdmin)
-      if (!permitted) {
-        return NextResponse.json(
-          {
-            error: `Access to agent "${agentId}" requires features: ${agentFeatures.join(', ')}.`,
-            code: 'agent_features_denied',
-          },
-          { status: 403 },
-        )
-      }
+    const unavailableModuleIds = await loadUnavailableModuleIds(rbacService, auth.tenantId, auth.sub)
+    const permitted = isAgentAccessible(agent, {
+      userFeatures: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
+      unavailableModuleIds,
+      rbacService,
+    })
+    if (!permitted) {
+      return NextResponse.json(
+        {
+          error: `Access to agent "${agentId}" requires features: ${agentFeatures.join(', ')}.`,
+          code: 'agent_features_denied',
+        },
+        { status: 403 },
+      )
     }
 
     const allowRuntimeOverride = resolveAllowRuntimeOverride(agent)

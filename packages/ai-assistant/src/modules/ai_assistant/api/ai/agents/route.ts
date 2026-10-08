@@ -6,7 +6,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { llmProviderRegistry } from '../../../lib/llm-registry'
 import { isAgentTaskPlanEnabled, listAgents, loadAgentRegistry } from '../../../lib/agent-registry'
-import { hasRequiredFeatures } from '../../../lib/auth'
+import { loadUnavailableModuleIds } from '../../../lib/auth'
+import { isAgentAccessible } from '../../../lib/ai-access'
 import { toolRegistry } from '../../../lib/tool-registry'
 import type { AiToolDefinition } from '../../../lib/types'
 
@@ -65,9 +66,9 @@ export async function GET(req: NextRequest) {
 
     await loadAgentRegistry()
     const all = listAgents()
-    const accessible = all.filter((agent) =>
-      hasRequiredFeatures(agent.requiredFeatures, acl.features, acl.isSuperAdmin, rbacService),
-    )
+    const unavailableModuleIds = await loadUnavailableModuleIds(rbacService, auth.tenantId, auth.sub)
+    const subject = { userFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin, unavailableModuleIds, rbacService }
+    const accessible = all.filter((agent) => isAgentAccessible(agent, subject))
 
     const agents = accessible.map((agent) => {
       const tools = agent.allowedTools.map((toolName) => {

@@ -222,6 +222,7 @@ async function executeMutationTool(
       userId,
       features: ctx.userFeatures,
       isSuperAdmin: ctx.isSuperAdmin,
+      unavailableModuleIds: ctx.unavailableModuleIds,
       container: fresh,
     },
   )
@@ -244,6 +245,7 @@ async function executeMutationTool(
       container: confirmContainer,
       userFeatures: ctx.userFeatures,
       isSuperAdmin: ctx.isSuperAdmin,
+      unavailableModuleIds: ctx.unavailableModuleIds,
     },
     emitEvent: async () => {},
   })

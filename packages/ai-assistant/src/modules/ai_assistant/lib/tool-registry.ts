@@ -50,6 +50,13 @@ class ToolRegistryImpl implements McpToolRegistry {
     return this.moduleMap.get(moduleId) ?? []
   }
 
+  getToolModuleId(name: string): string | undefined {
+    for (const [moduleId, tools] of this.moduleMap.entries()) {
+      if (moduleId !== 'ai_overrides' && tools.includes(name)) return moduleId
+    }
+    return undefined
+  }
+
   unregisterTool(name: string): void {
     this.tools.delete(name)
     for (const [moduleId, tools] of this.moduleMap.entries()) {

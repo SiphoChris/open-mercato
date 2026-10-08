@@ -12,6 +12,8 @@ export interface McpToolContext {
   container: AwilixContainer
   userFeatures: string[]
   isSuperAdmin: boolean
+  /** Modules unavailable to the tenant (per-tenant module availability). */
+  unavailableModuleIds?: readonly string[]
   /** API key secret for authenticating HTTP requests to internal APIs */
   apiKeySecret?: string
   /** Session token for memory layer (deduplication of search/GET calls) */
@@ -191,6 +193,9 @@ export interface McpToolRegistry {
   listToolNames(): string[]
 
   listToolsByModule(moduleId: string): string[]
+
+  /** Module the tool was registered for, when it was registered with a `moduleId`. */
+  getToolModuleId?(name: string): string | undefined
 }
 
 /**

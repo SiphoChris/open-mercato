@@ -7,7 +7,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { AiPendingActionRepository } from '../../../../../data/repositories/AiPendingActionRepository'
-import { hasRequiredFeatures } from '../../../../../lib/auth'
+import { hasRequiredFeatures, loadUnavailableModuleIds } from '../../../../../lib/auth'
 import { serializePendingActionForClient } from '../../../../../lib/pending-action-client'
 import { getAgent, loadAgentRegistry } from '../../../../../lib/agent-registry'
 import { toolRegistry } from '../../../../../lib/tool-registry'
@@ -127,8 +127,9 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     })
+    const unavailableModuleIds = await loadUnavailableModuleIds(rbacService, auth.tenantId, auth.sub)
 
-    if (!hasRequiredFeatures([REQUIRED_FEATURE], acl.features, acl.isSuperAdmin, rbacService)) {
+    if (!hasRequiredFeatures([REQUIRED_FEATURE], acl.features, acl.isSuperAdmin, rbacService, unavailableModuleIds)) {
       return jsonError(403, `Caller lacks required feature "${REQUIRED_FEATURE}".`, 'forbidden')
     }
 
@@ -189,6 +190,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
         userId: auth.sub,
         userFeatures: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
+        unavailableModuleIds,
         container,
         em,
       },
@@ -204,6 +206,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       userId: auth.sub,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      unavailableModuleIds,
       container,
     }
 

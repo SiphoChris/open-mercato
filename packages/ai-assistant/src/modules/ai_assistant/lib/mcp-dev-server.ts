@@ -6,7 +6,8 @@ import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
+import { authenticateMcpRequest, extractApiKeyFromHeaders, loadUnavailableModuleIds } from './auth'
+import { isToolAccessible } from './ai-access'
 import { jsonSchemaToZod } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getApiKeyFromMcpJson } from './mcp-dev-key-resolution'
@@ -64,7 +65,8 @@ function createDevMcpServer(
   toolContext: McpToolContext,
   authFeatures: string[],
   isSuperAdmin: boolean,
-  debug: boolean
+  debug: boolean,
+  startupUnavailableModuleIds?: readonly string[],
 ): McpServer {
   const server = new McpServer(
     { name: 'open-mercato-mcp-dev', version: '0.1.0' },
@@ -76,9 +78,13 @@ function createDevMcpServer(
 
   // Filter tools based on API key permissions
   const rbacService = toolContext.container.resolve<RbacService>('rbacService')
-  const accessibleTools = tools.filter((tool) =>
-    hasRequiredFeatures(tool.requiredFeatures, authFeatures, isSuperAdmin, rbacService)
-  )
+  const startupSubject = {
+    userFeatures: authFeatures,
+    isSuperAdmin,
+    unavailableModuleIds: startupUnavailableModuleIds,
+    rbacService,
+  }
+  const accessibleTools = tools.filter((tool) => isToolAccessible(tool, startupSubject, registry))
 
   if (debug) {
     log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by API key permissions)`)
@@ -121,7 +127,10 @@ function createDevMcpServer(
             log(`Calling tool: ${tool.name}`, JSON.stringify(toolArgs))
           }
 
-          const result = await executeTool(tool.name, toolArgs, toolContext)
+          const result = await executeTool(tool.name, toolArgs, {
+            ...toolContext,
+            unavailableModuleIds: await loadUnavailableModuleIds(rbacService, toolContext.tenantId, toolContext.userId),
+          })
 
           if (!result.success) {
             log(`Tool error: ${result.error}`)
@@ -342,7 +351,7 @@ export async function runMcpDevServer(): Promise<void> {
       })
 
       // Create server with pre-authenticated context (no session tokens needed)
-      const mcpServer = createDevMcpServer(toolContext, authResult.features, authResult.isSuperAdmin, debug)
+      const mcpServer = createDevMcpServer(toolContext, authResult.features, authResult.isSuperAdmin, debug, authResult.unavailableModuleIds)
 
       // Connect server to transport
       await mcpServer.connect(transport)

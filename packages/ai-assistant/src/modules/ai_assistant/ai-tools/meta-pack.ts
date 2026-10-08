@@ -10,7 +10,7 @@
 import { z } from 'zod'
 import type { AiAgentDefinition } from '../lib/ai-agent-definition'
 import { listAgents, getAgent, loadAgentRegistry } from '../lib/agent-registry'
-import { hasRequiredFeatures } from '../lib/auth'
+import { isAgentAccessible } from '../lib/ai-access'
 import { defineAiTool } from '../lib/ai-tool-definition'
 import {
   TASK_PLAN_DETAIL_MAX_CHARS,
@@ -101,8 +101,7 @@ const listAgentsTool = defineAiTool({
     }
     const filtered = all.filter((agent) => {
       if (input.moduleId && agent.moduleId !== input.moduleId) return false
-      const features = agent.requiredFeatures ?? []
-      return hasRequiredFeatures(features, ctx.userFeatures, ctx.isSuperAdmin)
+      return isAgentAccessible(agent, ctx)
     })
     return {
       agents: filtered.map(summarizeAgent),
@@ -136,8 +135,7 @@ const describeAgentTool = defineAiTool({
     if (!agent) {
       return { agent: null, reason: 'not_found' as const }
     }
-    const features = agent.requiredFeatures ?? []
-    if (!hasRequiredFeatures(features, ctx.userFeatures, ctx.isSuperAdmin)) {
+    if (!isAgentAccessible(agent, ctx)) {
       return { agent: null, reason: 'forbidden' as const }
     }
     return {

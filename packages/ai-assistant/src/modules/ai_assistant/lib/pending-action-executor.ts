@@ -38,6 +38,7 @@ export interface PendingActionExecuteContext {
   userId: string
   userFeatures: string[]
   isSuperAdmin: boolean
+  unavailableModuleIds?: readonly string[]
   container: import('awilix').AwilixContainer
 }
 
@@ -300,6 +301,7 @@ function toToolHandlerContext(
     container: ctx.container,
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
+    unavailableModuleIds: ctx.unavailableModuleIds,
     tool,
     approvedPendingActionId,
   }

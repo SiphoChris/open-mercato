@@ -21,4 +21,6 @@ export interface AiChatRequestContext {
   userId: string
   features: string[]
   isSuperAdmin: boolean
+  /** Modules unavailable to the tenant (per-tenant module availability). */
+  unavailableModuleIds?: readonly string[]
 }

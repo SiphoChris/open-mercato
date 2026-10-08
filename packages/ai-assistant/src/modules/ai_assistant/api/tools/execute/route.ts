@@ -7,6 +7,7 @@ import { executeTool } from '../../../lib/tool-executor'
 import { loadAllModuleTools } from '../../../lib/tool-loader'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { McpToolContext } from '../../../lib/types'
+import { loadUnavailableModuleIds } from '../../../lib/auth'
 
 const logger = createLogger('ai_assistant')
 
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
       container,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      unavailableModuleIds: await loadUnavailableModuleIds(rbacService, auth.tenantId, auth.sub),
     }
 
     // Execute the tool

@@ -21,6 +21,7 @@ import {
 } from '@open-mercato/shared/modules/registry'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type { AiToolDefinition, McpToolContext } from './types'
+import { resolveUnavailableModuleIdsFromContainer } from './auth'
 
 export type AiApiHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
@@ -294,6 +295,17 @@ export function createAiApiOperationRunner(
 
       const methodMetadata = extractMethodMetadata(mod.metadata, method)
       const routeFeatures = methodMetadata?.requireFeatures ?? []
+
+      if (routeFeatures.length > 0 && match.route.moduleId) {
+        const unavailableModuleIds = ctx.unavailableModuleIds
+          ?? await resolveUnavailableModuleIdsFromContainer(ctx.container, ctx.tenantId, ctx.userId)
+        if (unavailableModuleIds.includes(match.route.moduleId)) {
+          return failure(
+            403,
+            `Route ${method} ${path} belongs to module "${match.route.moduleId}", which is unavailable to this tenant`,
+          ) as AiApiOperationResponse<T>
+        }
+      }
       const isMutation = MUTATION_METHODS.has(method)
 
       if (isMutation && routeFeatures.length === 0 && !request.allowFeaturelessMutation) {

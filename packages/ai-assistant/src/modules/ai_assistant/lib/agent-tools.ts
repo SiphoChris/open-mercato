@@ -15,6 +15,7 @@ import {
 import { toolRegistry } from './tool-registry'
 import { toSafeZodSchema } from './schema-utils'
 import { prepareMutation } from './prepare-mutation'
+import { resolveUnavailableModuleIdsFromContainer } from './auth'
 
 const logger = createLogger('ai_assistant')
 
@@ -117,10 +118,12 @@ export interface ResolvedAgentTools {
 function toPolicyAuthContext(ctx: AiChatRequestContext): {
   userFeatures: string[]
   isSuperAdmin: boolean
+  unavailableModuleIds?: readonly string[]
 } {
   return {
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,
+    unavailableModuleIds: ctx.unavailableModuleIds,
   }
 }
 
@@ -161,6 +164,7 @@ function buildToolHandlerContext(
     container: (container ?? undefined) as unknown as McpToolContext['container'],
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,
+    unavailableModuleIds: ctx.unavailableModuleIds,
     ...(tool ? { tool } : {}),
   }
 }
@@ -259,6 +263,7 @@ function adaptToolToAiSdk(
               userId: mutation.ctx.userId,
               features: mutation.ctx.features,
               isSuperAdmin: mutation.ctx.isSuperAdmin,
+              unavailableModuleIds: mutation.ctx.unavailableModuleIds,
               container: mutation.container,
             },
           )
@@ -306,8 +311,21 @@ function adaptToolToAiSdk(
  * reach the model).
  */
 export async function resolveAiAgentTools(
-  input: ResolveAiAgentToolsInput,
+  requestedInput: ResolveAiAgentToolsInput,
 ): Promise<ResolvedAgentTools> {
+  const input: ResolveAiAgentToolsInput = requestedInput.authContext.unavailableModuleIds === undefined
+    ? {
+        ...requestedInput,
+        authContext: {
+          ...requestedInput.authContext,
+          unavailableModuleIds: await resolveUnavailableModuleIdsFromContainer(
+            requestedInput.container,
+            requestedInput.authContext.tenantId,
+            requestedInput.authContext.userId,
+          ),
+        },
+      }
+    : requestedInput
   await loadAgentRegistry()
   // The agent registry alone is not enough: the policy gate below resolves
   // every allowlisted name against the TOOL registry, and rejects what it

@@ -1,7 +1,8 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
-import { hasRequiredFeatures } from './auth'
+import { resolveUnavailableModuleIdsFromContainer } from './auth'
+import { isToolAccessible, isToolModuleUnavailable } from './ai-access'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('ai_assistant')
@@ -39,22 +40,30 @@ export async function executeTool(
     }
   }
 
-  // ACL check
-  if (tool.requiredFeatures?.length) {
-    const rbacService = context.container.resolve<RbacService>('rbacService')
-    const hasAccess = hasRequiredFeatures(
-      tool.requiredFeatures,
-      context.userFeatures,
-      context.isSuperAdmin,
-      rbacService
-    )
+  const unavailableModuleIds = context.unavailableModuleIds
+    ?? await resolveUnavailableModuleIdsFromContainer(context.container, context.tenantId, context.userId)
 
-    if (!hasAccess) {
-      return {
-        success: false,
-        error: `Insufficient permissions for tool "${toolName}". Required: ${tool.requiredFeatures.join(', ')}`,
-        errorCode: 'UNAUTHORIZED',
-      }
+  const rbacService = tool.requiredFeatures?.length
+    ? context.container.resolve<RbacService>('rbacService')
+    : undefined
+  const accessible = isToolAccessible(
+    tool,
+    {
+      userFeatures: context.userFeatures,
+      isSuperAdmin: context.isSuperAdmin,
+      unavailableModuleIds,
+      rbacService,
+    },
+    registry,
+  )
+  if (!accessible) {
+    const moduleUnavailable = isToolModuleUnavailable(toolName, unavailableModuleIds, registry)
+    return {
+      success: false,
+      error: moduleUnavailable
+        ? `Tool "${toolName}" belongs to module "${registry.getToolModuleId?.(toolName)}", which is unavailable to this tenant`
+        : `Insufficient permissions for tool "${toolName}". Required: ${(tool.requiredFeatures ?? []).join(', ')}`,
+      errorCode: 'UNAUTHORIZED',
     }
   }
 
@@ -83,7 +92,7 @@ export async function executeTool(
   // Execute tool. Attach `tool` to the context so handlers that build an
   // `AiToolExecutionContext` (e.g. via `createAiApiOperationRunner`) keep their
   // route-gate coverage check working.
-  const handlerContext: McpToolContext = { ...context, tool }
+  const handlerContext: McpToolContext = { ...context, unavailableModuleIds, tool }
   try {
     const result = await tool.handler(parseResult.data, handlerContext)
     return { success: true, result }

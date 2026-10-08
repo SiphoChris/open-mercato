@@ -1,6 +1,6 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getAgent } from './agent-registry'
-import { hasRequiredFeatures } from './auth'
+import { isAgentAccessible, isToolAccessible } from './ai-access'
 import { toolRegistry } from './tool-registry'
 import type {
   AiAgentAcceptedMediaType,
@@ -38,6 +38,7 @@ export type AgentPolicyDecision =
 export interface AgentPolicyAuthContext {
   userFeatures: string[]
   isSuperAdmin: boolean
+  unavailableModuleIds?: readonly string[]
 }
 
 export interface AgentPolicyCheckInput {
@@ -174,9 +175,7 @@ export function checkAgentPolicy(input: AgentPolicyCheckInput): AgentPolicyDecis
   }
 
   const agentFeatures = agent.requiredFeatures ?? []
-  if (
-    !hasRequiredFeatures(agentFeatures, authContext.userFeatures, authContext.isSuperAdmin)
-  ) {
+  if (!isAgentAccessible(agent, authContext)) {
     return {
       ok: false,
       code: 'agent_features_denied',
@@ -204,9 +203,7 @@ export function checkAgentPolicy(input: AgentPolicyCheckInput): AgentPolicyDecis
     }
 
     const toolFeatures = toolRecord.requiredFeatures ?? []
-    if (
-      !hasRequiredFeatures(toolFeatures, authContext.userFeatures, authContext.isSuperAdmin)
-    ) {
+    if (!isToolAccessible({ name: toolName, requiredFeatures: toolFeatures }, authContext, toolRegistry)) {
       return {
         ok: false,
         code: 'tool_features_denied',

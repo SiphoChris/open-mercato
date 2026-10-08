@@ -8,7 +8,8 @@ import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
+import { authenticateMcpRequest, extractApiKeyFromHeaders, loadUnavailableModuleIds } from './auth'
+import { isToolAccessible } from './ai-access'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
@@ -86,6 +87,7 @@ async function resolveSessionContext(
       container: baseContext.container,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      unavailableModuleIds: await loadUnavailableModuleIds(rbacService, sessionKey.tenantId ?? null, `api_key:${sessionKey.id}`),
       // Use the decrypted session secret for API calls (not the MCP server key)
       apiKeySecret: sessionSecret,
     }
@@ -101,7 +103,8 @@ async function resolveSessionContext(
  * Resolve user context from the server-level API key (header-based auth fallback).
  * Used when no session token is provided — loads the API key's ACL for RBAC.
  */
-async function resolveApiKeyContext(
+/** @internal Exported for tests: builds the per-request tool context of an API key. */
+export async function resolveApiKeyContext(
   apiKeyRecord: ApiKey,
   baseContext: McpToolContext,
   debug?: boolean
@@ -138,6 +141,7 @@ async function resolveApiKeyContext(
       container: baseContext.container,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      unavailableModuleIds: await loadUnavailableModuleIds(rbacService, apiKeyRecord.tenantId ?? null, `api_key:${apiKeyRecord.id}`),
       apiKeySecret: baseContext.apiKeySecret,
     }
   } catch (error) {
@@ -289,27 +293,30 @@ function createMcpServerForRequest(
           }
 
           // Check if user has required permissions for this tool
-          if (tool.requiredFeatures?.length) {
-            const rbacService = effectiveContext.container.resolve<RbacService>('rbacService')
-            const hasAccess = hasRequiredFeatures(
-              tool.requiredFeatures,
-              effectiveContext.userFeatures,
-              effectiveContext.isSuperAdmin,
-              rbacService
-            )
-            if (!hasAccess) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: `Insufficient permissions for tool "${tool.name}". Required: ${tool.requiredFeatures.join(', ')}`,
-                      code: 'UNAUTHORIZED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
+          const hasAccess = isToolAccessible(
+            tool,
+            {
+              userFeatures: effectiveContext.userFeatures,
+              isSuperAdmin: effectiveContext.isSuperAdmin,
+              unavailableModuleIds: effectiveContext.unavailableModuleIds,
+              rbacService: tool.requiredFeatures?.length
+                ? effectiveContext.container.resolve<RbacService>('rbacService')
+                : undefined,
+            },
+            registry,
+          )
+          if (!hasAccess) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: `Insufficient permissions for tool "${tool.name}". Required: ${(tool.requiredFeatures ?? []).join(', ')}`,
+                    code: 'UNAUTHORIZED',
+                  }),
+                },
+              ],
+              isError: true,
             }
           }
 

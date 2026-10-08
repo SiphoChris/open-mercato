@@ -27,7 +27,9 @@ import type {
   AiPendingActionStatus,
 } from './pending-action-types'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
-import { hasRequiredFeatures } from './auth'
+import { resolveUnavailableModuleIdsFromContainer } from './auth'
+import { isAgentAccessible, isToolAccessible } from './ai-access'
+import { toolRegistry } from './tool-registry'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 
 export type PendingActionRecheckCode =
@@ -36,6 +38,7 @@ export type PendingActionRecheckCode =
   | 'agent_unknown'
   | 'agent_features_denied'
   | 'tool_not_whitelisted'
+  | 'tool_features_denied'
   | 'read_only_agent'
   | 'attachment_cross_tenant'
   | 'stale_version'
@@ -70,6 +73,7 @@ export interface PendingActionAuthContext {
   userId: string
   userFeatures: string[]
   isSuperAdmin: boolean
+  unavailableModuleIds?: readonly string[]
   /**
    * Optional DI container used by `checkRecordVersion` to hand the tool's
    * `loadBeforeRecord` resolver an `McpToolContext`.
@@ -124,8 +128,9 @@ export function checkStatusAndExpiry(
 }
 
 /**
- * Guard 4: the agent is still registered AND the caller still carries the
- * agent's `requiredFeatures`. Missing agent → 404. Missing features → 403.
+ * Guard 4: the agent is still registered, its module is still available to
+ * the tenant, AND the caller still carries the agent's `requiredFeatures`.
+ * Missing agent → 404. Unavailable module or missing features → 403.
  */
 export function checkAgentAndFeatures(
   agent: AiAgentDefinition | null | undefined,
@@ -140,7 +145,7 @@ export function checkAgentAndFeatures(
     }
   }
   const required = agent.requiredFeatures ?? []
-  if (!hasRequiredFeatures(required, ctx.userFeatures, ctx.isSuperAdmin)) {
+  if (!isAgentAccessible(agent, ctx)) {
     return {
       ok: false,
       status: 403,
@@ -189,6 +194,26 @@ export function checkToolWhitelist(
       status: 403,
       code: 'read_only_agent',
       message: `Agent "${agent.id}" effective mutationPolicy=read-only; mutation tool "${tool.name}" cannot be executed.`,
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Guard 6b: the tool's module is still available to the tenant AND the caller
+ * still carries the tool's `requiredFeatures` — the same predicate tool listing
+ * and execution apply. Either missing → 403.
+ */
+export function checkToolAccess(
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): PendingActionRecheckResult {
+  if (!isToolAccessible(tool, ctx, toolRegistry)) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'tool_features_denied',
+      message: `Caller can no longer use tool "${tool.name}" (its module is unavailable or a required feature is missing: ${(tool.requiredFeatures ?? []).join(', ')}).`,
     }
   }
   return { ok: true }
@@ -350,6 +375,7 @@ function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {
     container: ctx.container as never,
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
+    unavailableModuleIds: ctx.unavailableModuleIds,
   }
 }
 
@@ -363,7 +389,17 @@ function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {
 export async function runPendingActionRechecks(
   input: PendingActionRecheckInput,
 ): Promise<PendingActionRecheckResult> {
-  const { action, agent, tool, ctx, now, mutationPolicyOverride } = input
+  const { action, agent, tool, now, mutationPolicyOverride } = input
+  const ctx: PendingActionAuthContext = input.ctx.unavailableModuleIds === undefined
+    ? {
+        ...input.ctx,
+        unavailableModuleIds: await resolveUnavailableModuleIdsFromContainer(
+          input.ctx.container,
+          input.ctx.tenantId,
+          input.ctx.userId,
+        ),
+      }
+    : input.ctx
 
   const statusCheck = checkStatusAndExpiry(action, { now })
   if (!statusCheck.ok) return statusCheck
@@ -375,6 +411,9 @@ export async function runPendingActionRechecks(
     mutationPolicyOverride: mutationPolicyOverride ?? null,
   })
   if (!whitelistCheck.ok) return whitelistCheck
+
+  const toolAccessCheck = checkToolAccess(tool!, ctx)
+  if (!toolAccessCheck.ok) return toolAccessCheck
 
   const attachmentCheck = await checkAttachmentScope(action, ctx)
   if (!attachmentCheck.ok) return attachmentCheck
@@ -393,6 +432,7 @@ export const PENDING_ACTION_RECHECK_CODES: ReadonlyArray<PendingActionRecheckCod
   'agent_unknown',
   'agent_features_denied',
   'tool_not_whitelisted',
+  'tool_features_denied',
   'read_only_agent',
   'attachment_cross_tenant',
   'stale_version',

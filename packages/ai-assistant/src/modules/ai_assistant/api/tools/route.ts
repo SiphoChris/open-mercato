@@ -6,7 +6,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getToolRegistry } from '../../lib/tool-registry'
 import { toolInputJsonSchema } from '../../lib/tool-input-schema'
 import { loadAllModuleTools } from '../../lib/tool-loader'
-import { hasRequiredFeatures } from '../../lib/auth'
+import { loadUnavailableModuleIds } from '../../lib/auth'
+import { isToolAccessible } from '../../lib/ai-access'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('ai_assistant')
@@ -47,9 +48,9 @@ export async function GET(req: NextRequest) {
     const registry = getToolRegistry()
     const allTools = Array.from(registry.getTools().values())
 
-    const accessibleTools = allTools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, acl.features, acl.isSuperAdmin, rbacService)
-    )
+    const unavailableModuleIds = await loadUnavailableModuleIds(rbacService, auth.tenantId, auth.sub)
+    const subject = { userFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin, unavailableModuleIds, rbacService }
+    const accessibleTools = allTools.filter((tool) => isToolAccessible(tool, subject, registry))
 
     const tools = accessibleTools.map((tool) => {
       const nameParts = tool.name.split('.')

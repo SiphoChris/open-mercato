@@ -161,6 +161,37 @@ describe('POST /api/ai/chat', () => {
     toolRegistry.clear()
   })
 
+  it('denies an agent of a module unavailable to the tenant and hands the set to the runtime otherwise', async () => {
+    const getUnavailableModuleIdsMock = jest.fn(async (): Promise<string[]> => ['customers'])
+    loadAclMock.mockResolvedValue({ features: [], isSuperAdmin: true })
+    createRequestContainerMock.mockResolvedValue({
+      resolve: (name: string) => {
+        if (name === 'rbacService') return { loadAcl: loadAclMock, getUnavailableModuleIds: getUnavailableModuleIdsMock }
+        if (name === 'em') return {}
+        return null
+      },
+    })
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', requiredFeatures: ['customers.people.view'] }),
+    ])
+    const request = () => POST(buildRequest({
+      agent: 'customers.assistant',
+      body: { messages: [{ role: 'user', content: 'hi' }] },
+    }) as never)
+
+    const denied = await request()
+    expect(denied.status).toBe(403)
+    expect(runAiAgentTextMock).not.toHaveBeenCalled()
+    expect(getUnavailableModuleIdsMock).toHaveBeenCalledWith('tenant-1', 'user-1')
+
+    getUnavailableModuleIdsMock.mockResolvedValue([])
+    const allowed = await request()
+    expect(allowed.status).toBe(200)
+    expect(runAiAgentTextMock).toHaveBeenCalledWith(expect.objectContaining({
+      authContext: expect.objectContaining({ unavailableModuleIds: [] }),
+    }))
+  })
+
   it('returns 401 when unauthenticated', async () => {
     authMock.mockResolvedValueOnce(null)
 

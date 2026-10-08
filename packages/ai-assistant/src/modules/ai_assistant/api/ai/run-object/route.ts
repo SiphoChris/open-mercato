@@ -10,6 +10,7 @@ import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentObject } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { loadUnavailableModuleIds } from '../../../lib/auth'
 
 const logger = createLogger('ai_assistant')
 
@@ -149,12 +150,14 @@ export async function POST(req: NextRequest): Promise<Response> {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     })
+    const unavailableModuleIds = await loadUnavailableModuleIds(rbacService, auth.tenantId, auth.sub)
 
     const decision = checkAgentPolicy({
       agentId: bodyResult.data.agent,
       authContext: {
         userFeatures: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
+        unavailableModuleIds,
       },
       requestedExecutionMode: 'object',
       attachmentMediaTypes: undefined,
@@ -176,6 +179,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         userId: auth.sub,
         features: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
+        unavailableModuleIds,
       },
       container,
     })

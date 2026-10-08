@@ -9,7 +9,8 @@ import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, hasRequiredFeatures } from './auth'
+import { authenticateMcpRequest, loadUnavailableModuleIds } from './auth'
+import { isToolAccessible } from './ai-access'
 import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -68,6 +69,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
           isSuperAdmin: boolean
           features: string[]
         }>
+        getUnavailableModuleIds?: (tenantId: string | null, userId?: string | null) => Promise<string[]>
       }
       const acl = await rbacService.loadAcl(userId, {
         tenantId,
@@ -119,9 +121,9 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
 
     // Filter tools based on user permissions
     const rbacService = container.resolve<RbacService>('rbacService')
-    const accessibleTools = tools.filter((tool) =>
-      hasRequiredFeatures(tool.requiredFeatures, userFeatures, isSuperAdmin, rbacService)
-    )
+    const unavailableModuleIds = await loadUnavailableModuleIds(rbacService, tenantId, userId)
+    const subject = { userFeatures, isSuperAdmin, unavailableModuleIds, rbacService }
+    const accessibleTools = tools.filter((tool) => isToolAccessible(tool, subject, registry))
 
     if (config.debug) {
       writeStderrLine(
@@ -147,7 +149,14 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       writeStderrLine(`[MCP Server] Calling tool: ${name} argKeys=${Object.keys(args ?? {}).join(',')}`)
     }
 
-    const result = await executeTool(name, args ?? {}, toolContext)
+    const result = await executeTool(name, args ?? {}, {
+      ...toolContext,
+      unavailableModuleIds: await loadUnavailableModuleIds(
+        container.resolve<RbacService>('rbacService'),
+        tenantId,
+        userId,
+      ),
+    })
 
     if (!result.success) {
       return {

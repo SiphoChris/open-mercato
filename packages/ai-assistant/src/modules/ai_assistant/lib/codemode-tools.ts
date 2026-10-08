@@ -17,7 +17,7 @@ import type { AiToolDefinition, McpToolContext } from './types'
 import { createSandbox } from './sandbox'
 import { truncateResult } from './truncate'
 import { applyContextScopeToQuery, applyContextScopeToBody } from './scope-injection'
-import { hasRequiredFeatures } from './auth'
+import { hasRequiredFeatures, resolveUnavailableModuleIdsFromContainer } from './auth'
 import { getApiEndpoints, getRawOpenApiSpec, type ApiEndpoint } from './api-endpoint-index'
 import {
   getCachedEntityGraph,
@@ -916,7 +916,9 @@ export async function authorizeCodeModeApiRequest(
   const requiredFeatures = endpoint.requiredFeatures ?? []
 
   if (requiredFeatures.length > 0) {
-    if (hasRequiredFeatures(requiredFeatures, ctx.userFeatures, ctx.isSuperAdmin, rbacService)) {
+    const unavailableModuleIds = ctx.unavailableModuleIds
+      ?? await resolveUnavailableModuleIdsFromContainer(ctx.container, ctx.tenantId, ctx.userId)
+    if (hasRequiredFeatures(requiredFeatures, ctx.userFeatures, ctx.isSuperAdmin, rbacService, unavailableModuleIds)) {
       return { allowed: true, endpoint }
     }
 
