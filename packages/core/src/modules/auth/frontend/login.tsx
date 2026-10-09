@@ -22,6 +22,7 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import type { AuthOverride, LoginFormWidgetContext } from './login-injection'
+import type { ClientTenantBranding } from '@open-mercato/shared/lib/branding/tenantBranding'
 
 const loginTenantKey = 'om_login_tenant'
 const loginTenantCookieMaxAge = 60 * 60 * 24 * 14
@@ -93,7 +94,44 @@ function emitLoginResponseEvent(detail: LoginResponseEventDetail) {
   window.dispatchEvent(new CustomEvent('om:auth:login-response', { detail }))
 }
 
-export default function LoginPage() {
+export type LoginPageProps = {
+  branding?: ClientTenantBranding | null
+}
+
+function LoginBrandLogo({ branding, fallbackAlt }: { branding?: ClientTenantBranding | null; fallbackAlt: string }) {
+  const light = branding?.logos?.light
+  if (!light?.src) {
+    return <Image alt={fallbackAlt} src="/open-mercato.svg" width={150} height={150} priority />
+  }
+  const dark = branding?.logos?.dark
+  const lightImage = (
+    <Image
+      alt={light.alt ?? fallbackAlt}
+      src={light.src}
+      width={150}
+      height={150}
+      priority={dark?.src ? undefined : true}
+      className={dark?.src ? 'h-auto max-h-36 w-auto object-contain dark:hidden' : 'h-auto max-h-36 w-auto object-contain'}
+      unoptimized
+    />
+  )
+  if (!dark?.src) return lightImage
+  return (
+    <>
+      {lightImage}
+      <Image
+        alt={dark.alt ?? fallbackAlt}
+        src={dark.src}
+        width={150}
+        height={150}
+        className="hidden h-auto max-h-36 w-auto object-contain dark:inline-block"
+        unoptimized
+      />
+    </>
+  )
+}
+
+export default function LoginPage({ branding }: LoginPageProps = {}) {
   const t = useT()
   const translate = useCallback(
     (key: string, fallback: string, params?: Record<string, string | number>) =>
@@ -352,8 +390,11 @@ export default function LoginPage() {
     <div className="min-h-svh flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="flex flex-col items-center gap-4 text-center p-10">
-          <Image alt={translate('auth.login.logoAlt', 'Open Mercato logo')} src="/open-mercato.svg" width={150} height={150} priority />
-          <h1 className="text-2xl font-semibold">{translate('auth.login.brandName', 'Open Mercato')}</h1>
+          <LoginBrandLogo
+            branding={branding}
+            fallbackAlt={branding?.productName ?? translate('auth.login.logoAlt', 'Open Mercato logo')}
+          />
+          <h1 className="text-2xl font-semibold">{branding?.productName ?? translate('auth.login.brandName', 'Open Mercato')}</h1>
           <CardDescription>{translate('auth.login.subtitle', 'Access your workspace')}</CardDescription>
         </CardHeader>
         <CardContent>
