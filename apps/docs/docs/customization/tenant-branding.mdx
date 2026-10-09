@@ -1,0 +1,142 @@
+---
+title: Brand each tenant
+description: Give every tenant its own product name, logos and brand colours at runtime with a tenant branding provider.
+---
+
+# Brand each tenant
+
+A multi-tenant app often needs each tenant to look like its own product: the `acme` tenant on `acme.example.com` shows the Acme logo and name. Open Mercato resolves branding server-side through a tenant branding provider registered in the DI container. The backend sidebar takes its logo and brand name from the provider through the navigation payload (`/api/auth/admin/nav`).
+
+An app that registers nothing keeps the built-in behaviour: the backend sidebar shows the selected organization's logo (set under **Settings → Branding**).
+
+## The contract
+
+```ts title="@open-mercato/shared/lib/branding/tenantBranding"
+export type TenantBrandingSurface = 'backend' | 'portal' | 'auth'
+
+export type TenantBrandingLogo = {
+  src: string                    // a root-relative path, an https:// URL or a base64 image data URL
+  alt?: string
+  preserveAspectRatio?: boolean  // backend sidebar: contain instead of a cropped round icon
+}
+
+export type TenantBranding = {
+  productName?: string
+  logos?: {
+    light: TenantBrandingLogo
+    dark?: TenantBrandingLogo    // shown under the dark theme; falls back to `light`
+    mark?: TenantBrandingLogo    // square mark for compact slots
+  }
+  style?: BrandStyle             // the design-system brand style format
+}
+
+export interface TenantBrandingProvider {
+  resolve(input: {
+    tenantId: string | null
+    organizationId: string | null
+    host: string | null          // null unless the provider sets varyByHost
+    surface: TenantBrandingSurface
+  }): Promise<TenantBranding | null>
+  varyByHost?: boolean           // opt in to receiving the normalised request host
+}
+```
+
+| DI key | Registered by | Purpose |
+|---|---|---|
+| `tenantBrandingProvider` | `directory` module (aliases the default) | **Override this** in your app |
+| `defaultTenantBrandingProvider` | `directory` module | Built-in organization-logo provider, also the fallback |
+
+### Where the brand is used
+
+| Surface | Tenant / organization passed in | Applied to |
+|---|---|---|
+| `backend` | the tenant and organization the backend is scoped to (same scope as the sidebar) | sidebar logo and brand name, through the `brand` of `/api/auth/admin/nav` (which also carries `darkLogo` and `mark`) |
+
+The `portal` and `auth` surfaces, the `dark` and `mark` logos and the `style` are part of the contract and validated by the resolver; rendering them on the portal and login pages and before first paint is covered by the shells described in the [specification](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/2026-10-05-tenant-branding-provider.md).
+
+## Register a provider
+
+Register the provider in your app's `src/di.ts`, which runs after every module registrar:
+
+```ts title="src/di.ts"
+import { asFunction } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { TenantBrandingProvider } from '@open-mercato/shared/lib/branding/tenantBranding'
+
+const acmeStyle = {
+  version: 1 as const,
+  logo: null,
+  light: { '--primary': '#0C71C6', '--primary-hover': '#0A5EA5', '--primary-foreground': '#FFFFFF' },
+  dark: { '--primary': '#4D9FDD', '--primary-hover': '#76B6E6', '--primary-foreground': '#0A0A0A' },
+}
+
+export function register(container: AppContainer) {
+  container.register({
+    tenantBrandingProvider: asFunction(
+      ({ defaultTenantBrandingProvider }: { defaultTenantBrandingProvider: TenantBrandingProvider }): TenantBrandingProvider => ({
+        varyByHost: true,
+        async resolve(input) {
+          if (input.host === 'acme.example.com') {
+            return {
+              productName: 'Acme Workspace',
+              logos: {
+                light: { src: '/brand/acme.svg', alt: 'Acme' },
+                dark: { src: '/brand/acme-dark.svg', alt: 'Acme' },
+                mark: { src: '/brand/acme-mark.svg', alt: 'Acme' },
+              },
+              style: acmeStyle,
+            }
+          }
+          return defaultTenantBrandingProvider.resolve(input)
+        },
+      }),
+    )
+      .scoped()
+      .proxy(),
+  })
+}
+```
+
+Delegating to `defaultTenantBrandingProvider` keeps the organization logo for every tenant you do not brand yourself. A real provider usually reads the branding from your own tenant settings table — resolve `em` (or your own service) from the cradle the same way.
+
+`host` is `null` unless the provider sets `varyByHost: true`. Any client can send any `Host` or `X-Forwarded-Host`, so the resolver never caches a result that depends on the host: a provider that varies by host is called on every request and should cache its own host lookups (bounded by the domains it knows). Treat `host` and the login `tenantId` as lookup keys, never as proof of identity.
+
+## Logo sources
+
+A logo `src` must be a root-relative path (`/brand/acme.png`, query and fragment allowed), an absolute `https://` URL, a base64 `data:image/(png|jpeg|webp|gif|svg+xml)` URL of at most 64 KB, or any URL the directory module accepts for organization logos under **Settings → Branding** (`http(s)://` URLs and `/api/attachments/…` paths), so organization logos render exactly as before, also when your provider delegates to `defaultTenantBrandingProvider`. Anything else — other schemes, scheme-relative (`//host`) forms, paths without a leading slash, surrounding whitespace, lone UTF-16 surrogates — is dropped. Prefer `https://`: the shipped Content-Security-Policy only allows `https:` images. Only the offending logo is dropped: an invalid `dark` or `mark` logo leaves the rest of the branding in place, and an invalid `light` logo drops the `logos` group (whose other entries only refine it) but keeps the product name and style. A blank `productName` is dropped. Schemes are lower-cased (`HTTPS://…` becomes `https://…`).
+
+Logos from your provider render without the Next.js image optimiser, so they need no `images.remotePatterns` or `images.localPatterns` entry, SVG served from any path renders, and a root-relative logo behind authentication loads with the visitor's cookies. A `logo` prop your app passes to a shell keeps the existing behaviour.
+
+## Brand colours
+
+`style` uses the same `BrandStyle` format as the design-system gallery and is validated with the same schema: only the `--primary` family and the brand accent tokens can be set, every value must be a `#rrggbb` hex colour, and `--primary-foreground` must reach a **4.5:1** WCAG contrast ratio against `--primary` and `--primary-hover` in both themes. A style that fails validation is dropped (the logos are kept) and a warning is logged.
+
+## Caching and invalidation
+
+Resolved branding is cached through the DI `cache` service for five minutes per surface, tenant and organization, tagged `tenant-branding:tenant:<tenantId>`; answers of the default provider and of a registered provider are cached under separate keys, `null` answers included. Results that depend on the host are not cached. After a registered provider fails — including a DI factory that throws — it is skipped for that tenant and organization for 30 seconds; a failure for a request that carries a host is not remembered at all, so one host never disables the provider for others, and such a provider is retried on every request. The built-in default provider is never skipped.
+
+`invalidateTenantBrandingCache(container, tenantId)` drops the tenant's entries and the tenant-less entries (for example a login page without a tenant). The backend navigation payload (`/api/auth/admin/nav`) is cached without its brand and takes the brand from the resolver on every request, so it follows invalidation and failure windows immediately. Organization changes (`directory.organization.*`) invalidate the tenant automatically. When your provider's own data changes, invalidate the tenant yourself:
+
+```ts
+import { invalidateTenantBrandingCache } from '@open-mercato/shared/lib/branding/resolveTenantBranding'
+
+await invalidateTenantBrandingCache(container, tenantId)
+```
+
+With the in-memory cache strategy each process keeps its own copy, so other instances converge within the TTL; use `CACHE_STRATEGY=redis` when several instances must update at once.
+
+## Failure behaviour
+
+Branding never breaks a page. Invalid fields are dropped one by one and logged at debug level. If your provider throws, does not answer within three seconds, cannot be constructed by the DI container, or returns something that is not an object, the resolver logs and reports the failure (`branding.provider_failed`; every failure is reported, volume control belongs to your telemetry backend) and falls back to `defaultTenantBrandingProvider`, whose answer is cached on its own; if that fails too, it is reported as `branding.default_provider_failed` and the platform default renders. Failed resolutions are not cached as branding. Keep providers fast: a slow provider delays a cache miss by up to the timeout.
+
+## Using the resolver elsewhere
+
+Custom server-rendered surfaces can reuse the same pipeline. Pass only tenant and organization ids that come from a session or a database lookup:
+
+```ts
+import { resolveTenantBranding } from '@open-mercato/shared/lib/branding/resolveTenantBranding'
+
+const branding = await resolveTenantBranding(container, { tenantId, organizationId, host, surface: 'portal' })
+```
+
+Resolve the branding once per request and pass it on rather than resolving it again in a callee.

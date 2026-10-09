@@ -354,6 +354,7 @@ const sidebars: SidebarsConfig = {
         "customization/list-inventory",
         "customization/inventory-crud-forms",
         "customization/custom-fields-overview",
+        "customization/tenant-branding",
       ],
     },
     {

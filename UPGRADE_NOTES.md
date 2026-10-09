@@ -97,6 +97,45 @@ scope instead of returning `null` — returning `null` there would drop the orga
 entirely and read across the tenant. Migrate to `resolveAttachmentRequestScope` so the deny becomes
 a response your route chooses.
 
+### Tenant branding provider (additive)
+
+Backend branding is now resolved through a new DI key, `tenantBrandingProvider` (contract in
+`@open-mercato/shared/lib/branding/tenantBranding`; guide: `customization/tenant-branding`). The
+`directory` module registers `defaultTenantBrandingProvider`, which reproduces the previous behaviour
+(the selected organization logo in the backend sidebar), and aliases `tenantBrandingProvider` to it.
+Nothing changes for an app that registers nothing, for principals within their organization access: the
+`brand` of `GET /api/auth/admin/nav` stays byte-identical (a blank organization name is no longer passed
+on as the brand name). No action is required.
+
+New, additive surfaces:
+
+- DI keys `tenantBrandingProvider` and `defaultTenantBrandingProvider`; types `TenantBranding`,
+  `TenantBrandingLogo`, `TenantBrandingProvider` (with an optional `varyByHost`),
+  `TenantBrandingResolveInput`, `TenantBrandingSurface`; helpers `resolveTenantBranding`,
+  `readTenantBrandingHost`, `parseTenantBranding`, `invalidateTenantBrandingCache`,
+  `buildTenantBrandingCacheTag` and `organizationLogoUrlSchema` (the directory module's organization
+  logo rule, now shared).
+- `BackendChromeBrand` (and the `brand` of `GET /api/auth/admin/nav`) gains optional `darkLogo` and
+  `mark`. Code that exhaustively destructures or re-serialises `brand` should pass the new fields through.
+- `BrandStyle`, `brandStyleCss` and the brand style schema now live in
+  `@open-mercato/shared/lib/branding/brandStyle`; `@open-mercato/ui/theme/brand-style` re-exports them,
+  so existing imports keep working.
+
+Behaviour notes:
+
+- A registered provider's brand reaches the backend sidebar through the nav payload. Its logos must be
+  root-relative paths, `https://` URLs, base64 image data URLs, or URLs the directory accepts for
+  organization logos (`http://` included); an invalid logo, style or blank name is dropped on its own.
+  The backend shell renders the provider's logos without the image optimiser; its own `logo` prop keeps
+  the existing rule.
+- `GET /api/auth/admin/nav` caches its payload without `brand` and attaches the resolver's brand on
+  every request, so the brand follows `invalidateTenantBrandingCache` and provider recovery at once.
+- Provider failures are reported through `reportError` with `branding.provider_failed` (and
+  `branding.default_provider_failed` for the built-in provider).
+- The brand organization is now chosen within the caller's organization access: a cookie or query
+  organization, or the caller's own, is used only when that access allows it. Previously a principal
+  with an empty organization ACL could see the name and logo of an organization outside it in the brand.
+
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 
 `directory.organizations.update` (and so `PUT /api/directory/organizations` and

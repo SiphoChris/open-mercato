@@ -158,3 +158,13 @@ alter table "organizations" add constraint "organizations_tenant_slug_uniq" uniq
 ```
 
 The pre-check runs **outside** `em.transactional`, so two concurrent `mercato auth setup --orgSlug=foo` invocations creating new tenants can both pass the application-level check and both succeed at the DB level (different `tenant_id`, identical `slug`). Downstream tooling that relies on the slug as a stable cross-tenant handle should either serialize provisioning calls or add a partial unique index on `slug` alone (`where slug is not null`) in a follow-up migration; in that case the pre-check can move inside the transactional block and become a true uniqueness gate.
+
+## Tenant Branding
+
+Backend chrome branding resolves server-side through the `tenantBrandingProvider` DI key (contract: `@open-mercato/shared/lib/branding/tenantBranding`; spec: `.ai/specs/2026-10-05-tenant-branding-provider.md`; docs: `customization/tenant-branding`).
+
+- MUST resolve branding through `resolveTenantBranding` — never read `Organization.logoUrl` directly for chrome; the resolver caches per tenant, validates logos and `BrandStyle` contrast, and falls back to `defaultTenantBrandingProvider`.
+- MUST load the backend branding organization with `resolveBrandOrganization` (`lib/tenantBranding.ts`) wherever the backend brand is resolved: it loads the scoped organization, else a requested or own organization the caller's access allows, in the tenant (cached under the tenant branding tag), so another tenant's or an inaccessible organization never reaches a provider, and every backend surface then agrees with `/api/auth/admin/nav`.
+- MUST resolve the brand once per request and keep it out of longer-lived caches: `/api/auth/admin/nav` caches its payload without `brand` and attaches the resolver's brand per request.
+- MUST pass only tenant ids that come from a session or a database lookup; `host` reaches providers only when the provider sets `varyByHost`, and host-dependent results are never cached.
+- Call `invalidateTenantBrandingCache(container, tenantId)` when data a provider reads changes; `directory.organization.*` already does.
