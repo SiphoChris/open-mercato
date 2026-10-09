@@ -287,6 +287,9 @@ describe('AppShell', () => {
     ['internal-file', '/api/attachments/file/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
     ['internal-image-query', '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.svg?width=320&height=320'],
     ['external-webp', 'https://example.com/acme-wide-logo.webp'],
+    ['root-relative-query', '/brand/acme.png?v=3'],
+    ['upper-case-external', 'HTTPS://example.com/acme-wide-logo.webp'],
+    ['root-relative', '/my-logo.png'],
   ])('uses an aspect-ratio-preserving backend chrome brand logo when enabled for %s', async (variant, logoSrc) => {
     const previousFetch = global.fetch
     const previousWindowFetch = window.fetch
@@ -339,6 +342,20 @@ describe('AppShell', () => {
       window.fetch = previousWindowFetch
       ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
     }
+  })
+
+  it.each([
+    ['/my-logo.png', 'false'],
+    ['/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'true'],
+    ['https://example.com/my-logo.png', 'true'],
+  ])("keeps the caller's own logo prop %s on the existing image-optimiser rule", (logoSrc, unoptimized) => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={[]} logo={{ src: logoSrc, alt: 'Own logo' }}>
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+    expect(screen.getAllByAltText('Own logo')[0]).toHaveAttribute('data-unoptimized', unoptimized)
   })
 
   it('uses the cropped icon treatment for backend chrome brand logos by default', async () => {

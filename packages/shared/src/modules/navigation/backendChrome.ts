@@ -50,13 +50,19 @@ export type BackendChromeSectionGroup = {
   order?: number
 }
 
+export type BackendChromeBrandLogo = {
+  src: string
+  alt?: string
+  preserveAspectRatio?: boolean
+}
+
 export type BackendChromeBrand = {
   name?: string
-  logo?: {
-    src: string
-    alt?: string
-    preserveAspectRatio?: boolean
-  } | null
+  logo?: BackendChromeBrandLogo | null
+  /** Logo shown under the `.dark` theme. Falls back to `logo`. */
+  darkLogo?: BackendChromeBrandLogo | null
+  /** Square mark shown in compact slots (collapsed sidebar). Falls back to `logo`. */
+  mark?: BackendChromeBrandLogo | null
 }
 
 /**

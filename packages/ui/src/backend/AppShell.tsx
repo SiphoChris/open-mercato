@@ -611,7 +611,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   const resolvedBrandName = chromePayload?.brand?.logo?.src
     ? chromePayload.brand.name ?? resolvedProductName
     : resolvedProductName
-  const resolvedLogoBypassesOptimization = shouldBypassLogoOptimization(resolvedLogo?.src)
+  const resolvedLogoBypassesOptimization = (Boolean(chromePayload?.brand?.logo?.src) && resolvedLogo === chromePayload?.brand?.logo) || shouldBypassLogoOptimization(resolvedLogo?.src)
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // When the mobile drawer opens on a settings/profile route, it follows the
   // section sidebar by default. Set to 'main' to force-show the main nav even
