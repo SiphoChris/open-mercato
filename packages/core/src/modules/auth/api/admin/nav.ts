@@ -6,8 +6,14 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getBackendRouteManifests } from '@open-mercato/shared/modules/registry'
 import { getModuleSurfaceFingerprint } from '@open-mercato/shared/lib/modules/surfaceFingerprint'
-import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  getSelectedOrganizationFromRequest,
+  resolveFeatureCheckContext,
+} from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { readTenantBrandingHost, resolveTenantBranding } from '@open-mercato/shared/lib/branding/resolveTenantBranding'
+import { toBackendChromeBrand } from '@open-mercato/shared/lib/branding/tenantBranding'
 import { groupBackendRoutesByModule, resolveBackendChromePayload } from '../../lib/backendChrome'
+import { resolveBrandOrganization } from '../../lib/tenantBranding'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -139,6 +145,7 @@ export async function GET(req: Request) {
   let cacheScopeTenantId = auth.tenantId ?? null
   let cacheScopeOrganizationId = auth.orgId ?? null
   let cacheScopeSelectedOrganizationId = auth.orgId ?? null
+  let allowedOrganizationIds: string[] | null = auth.orgId ? [auth.orgId] : []
   try {
     const { organizationId, scope } = await resolveFeatureCheckContext({
       container,
@@ -150,6 +157,7 @@ export async function GET(req: Request) {
     cacheScopeOrganizationId = organizationId
     cacheScopeTenantId = scope.tenantId ?? auth.tenantId ?? null
     cacheScopeSelectedOrganizationId = scope.selectedId ?? null
+    allowedOrganizationIds = scope.allowedIds
   } catch {
     cacheScopeOrganizationId = auth.orgId ?? null
     cacheScopeTenantId = auth.tenantId ?? null
@@ -166,13 +174,28 @@ export async function GET(req: Request) {
   const cacheVersion = `v7:${getModuleSurfaceFingerprint()}`
   const cacheSelection = cacheScopeSelectedOrganizationId ?? '__all__'
   const cacheKey = `nav:sidebar:${cacheVersion}:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${cacheSelection}`
+  let cached: unknown = null
   try {
-    if (cache?.get) {
-      const cached = await cache.get(cacheKey)
-      if (cached) return NextResponse.json(cached)
-    }
+    if (cache?.get) cached = await cache.get(cacheKey)
   } catch {
     // ignore cache read failures
+  }
+  if (cached && typeof cached === 'object') {
+    const organization = await resolveBrandOrganization({
+      container,
+      tenantId: cacheScopeTenantId,
+      scopedOrganizationId: cacheScopeOrganizationId,
+      requestedOrganizationId: selectedOrganizationId ?? getSelectedOrganizationFromRequest(req),
+      ownOrganizationId: auth.orgId ?? null,
+      allowedOrganizationIds,
+    })
+    const branding = await resolveTenantBranding(container, {
+      tenantId: cacheScopeTenantId,
+      organizationId: organization?.id ?? null,
+      host: readTenantBrandingHost(req.headers),
+      surface: 'backend',
+    })
+    return NextResponse.json({ ...cached, brand: toBackendChromeBrand(branding) })
   }
 
   const payload = await resolveBackendChromePayload({
@@ -198,7 +221,7 @@ export async function GET(req: Request) {
         `nav:sidebar:scope:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}:${locale}`,
         ...((Array.isArray(auth.roles) ? auth.roles : []).map((role) => `nav:sidebar:role:${role}`)),
       ].filter(Boolean) as string[]
-      await cache.set(cacheKey, payload, { tags, ttl: NAV_CACHE_TTL_MS })
+      await cache.set(cacheKey, { ...payload, brand: null }, { tags, ttl: NAV_CACHE_TTL_MS })
     }
   } catch {
     // ignore cache write failures

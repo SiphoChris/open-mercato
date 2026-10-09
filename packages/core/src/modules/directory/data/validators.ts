@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { organizationLogoUrlSchema } from '@open-mercato/shared/lib/branding/tenantBranding'
 
 export const tenantCreateSchema = z.object({
   name: z.string().min(1).max(200),
@@ -12,14 +13,7 @@ export const tenantUpdateSchema = z.object({
 })
 
 const slugField = z.string().trim().toLowerCase().regex(/^[a-z0-9\-_]+$/).max(150).optional().nullable()
-const logoUrlField = z
-  .union([
-    z.string().trim().url().max(2048).refine(
-      (value) => value.startsWith('https://') || value.startsWith('http://'),
-      { message: 'Logo URL must use http or https.' },
-    ),
-    z.string().trim().regex(/^\/api\/attachments\/(?:image|file)\/[A-Za-z0-9%_.~/?=&-]+$/).max(2048),
-  ])
+const logoUrlField = organizationLogoUrlSchema
   .optional()
   .nullable()
 

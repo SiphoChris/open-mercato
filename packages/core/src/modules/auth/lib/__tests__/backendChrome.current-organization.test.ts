@@ -5,6 +5,16 @@
 // resolver already loads. The first case below is the regression oracle: an organization with no logo
 // must still be identified.
 
+type MockLogger = { debug: jest.Mock; info: jest.Mock; warn: jest.Mock; error: jest.Mock; child: () => MockLogger }
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/logger')
+  const logger: MockLogger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn(), child: () => logger }
+  return { ...actual, createLogger: () => logger, mockedLogger: logger }
+})
+
+const mockLogger = (jest.requireMock('@open-mercato/shared/lib/logger') as { mockedLogger: MockLogger }).mockedLogger
+
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const ORG_ID = '123e4567-e89b-12d3-a456-426614174002'
 const USER_ID = '123e4567-e89b-12d3-a456-426614174010'
@@ -25,6 +35,10 @@ const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'rbacService') return mockRbacService
+    if (token === 'tenantBrandingProvider' || token === 'defaultTenantBrandingProvider') {
+      const { createOrganizationTenantBrandingProvider } = jest.requireActual('@open-mercato/core/modules/directory/lib/tenantBranding')
+      return createOrganizationTenantBrandingProvider({ em: mockEm })
+    }
     return null
   }),
 }
@@ -229,5 +243,175 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
 
     const [, , where] = mockFindOneWithDecryption.mock.calls[0]
     expect(where).toMatchObject({ id: ORG_ID, tenant: TENANT_ID, deletedAt: null })
+  })
+})
+
+describe('resolveBackendChromePayload — tenant branding provider', () => {
+  function withProvider(provider: { resolve: jest.Mock }) {
+    mockContainer.resolve.mockImplementation((token: string) => {
+      if (token === 'em') return mockEm
+      if (token === 'rbacService') return mockRbacService
+      if (token === 'tenantBrandingProvider') return provider
+      if (token === 'defaultTenantBrandingProvider') {
+        const { createOrganizationTenantBrandingProvider } = jest.requireActual('@open-mercato/core/modules/directory/lib/tenantBranding')
+        return createOrganizationTenantBrandingProvider({ em: mockEm })
+      }
+      return null
+    })
+  }
+
+  afterEach(() => {
+    mockContainer.resolve.mockImplementation((token: string) => {
+      if (token === 'em') return mockEm
+      if (token === 'rbacService') return mockRbacService
+      if (token === 'tenantBrandingProvider' || token === 'defaultTenantBrandingProvider') {
+        const { createOrganizationTenantBrandingProvider } = jest.requireActual('@open-mercato/core/modules/directory/lib/tenantBranding')
+        return createOrganizationTenantBrandingProvider({ em: mockEm })
+      }
+      return null
+    })
+  })
+
+  it('takes the brand, dark logo and mark from a registered provider', async () => {
+    const provider = {
+      resolve: jest.fn(async () => ({
+        productName: 'Acme',
+        logos: {
+          light: { src: '/brand/acme.svg', alt: 'Acme' },
+          dark: { src: '/brand/acme-dark.svg', alt: 'Acme' },
+          mark: { src: '/brand/acme-mark.svg', alt: 'Acme' },
+        },
+      })),
+    }
+    withProvider(provider)
+    mockFindOneWithDecryption.mockResolvedValue({ id: ORG_ID, name: 'Northwind Ltd', logoUrl: null })
+
+    const payload = await resolve()
+
+    expect(provider.resolve).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      surface: 'backend',
+    }))
+    expect(payload.brand).toEqual({
+      name: 'Acme',
+      logo: { src: '/brand/acme.svg', alt: 'Acme' },
+      darkLogo: { src: '/brand/acme-dark.svg', alt: 'Acme' },
+      mark: { src: '/brand/acme-mark.svg', alt: 'Acme' },
+    })
+    expect(payload.currentOrganization).toEqual({ id: ORG_ID, name: 'Northwind Ltd' })
+  })
+
+  it('never queries the organization for a malformed selected-organization cookie', async () => {
+    mockResolveFeatureCheckContext.mockResolvedValue(allOrganizationsSelection(null))
+    mockGetSelectedOrganizationFromRequest.mockReturnValue('not-a-uuid')
+
+    const payload = await resolveBackendChromePayload({
+      auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: null, roles: [] } as never,
+      locale: 'en',
+      modules: [],
+      translate: (_key: string | undefined, fallback: string) => fallback,
+      request: new Request('http://localhost/api/auth/admin/nav'),
+      selectedTenantId: TENANT_ID,
+    })
+
+    expect(payload.brand).toBeNull()
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  describe('a selected-organization cookie outside the caller organization access', () => {
+    const INACCESSIBLE_ORG_ID = '123e4567-e89b-12d3-a456-426614174077'
+
+    beforeEach(() => {
+      mockResolveFeatureCheckContext.mockResolvedValue({
+        organizationId: null,
+        scope: { selectedId: null, filterIds: [], allowedIds: [], tenantId: TENANT_ID },
+        allowedOrganizationIds: [],
+      })
+      mockGetSelectedOrganizationFromRequest.mockReturnValue(INACCESSIBLE_ORG_ID)
+      mockFindOneWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: { id: string; tenant: string }) => (
+        where.id === INACCESSIBLE_ORG_ID && where.tenant === TENANT_ID
+          ? { id: INACCESSIBLE_ORG_ID, name: 'Restricted Ltd', logoUrl: 'https://cdn.example.com/restricted.png' }
+          : null
+      ))
+    })
+
+    function resolveWithCookie() {
+      return resolveBackendChromePayload({
+        auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: null, roles: [] } as never,
+        locale: 'en',
+        modules: [],
+        translate: (_key: string | undefined, fallback: string) => fallback,
+        request: new Request('http://localhost/api/auth/admin/nav'),
+        selectedTenantId: TENANT_ID,
+      })
+    }
+
+    it('never reaches a registered provider', async () => {
+      const provider = { resolve: jest.fn(async () => null) }
+      withProvider(provider)
+
+      await resolveWithCookie()
+
+      expect(provider.resolve).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT_ID, organizationId: null }))
+    })
+
+    it("exposes neither the organization's name nor its logo by default", async () => {
+      const payload = await resolveWithCookie()
+
+      expect(payload.brand).toBeNull()
+      expect(payload.currentOrganization).toBeNull()
+      expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("a super administrator's home organization while viewing another tenant", () => {
+    const VIEWED_TENANT_ID = '123e4567-e89b-12d3-a456-426614174099'
+
+    beforeEach(() => {
+      mockResolveFeatureCheckContext.mockResolvedValue({
+        organizationId: ORG_ID,
+        scope: { selectedId: null, filterIds: null, allowedIds: null, tenantId: VIEWED_TENANT_ID },
+        allowedOrganizationIds: null,
+      })
+      mockFindOneWithDecryption.mockImplementation(async (_em: unknown, _entity: unknown, where: { id: string; tenant: string }) => (
+        where.id === ORG_ID && where.tenant === TENANT_ID
+          ? { id: ORG_ID, name: 'Home Ltd', logoUrl: 'https://cdn.example.com/home.png' }
+          : null
+      ))
+    })
+
+    it('never reaches a registered provider paired with the viewed tenant', async () => {
+      const provider = { resolve: jest.fn(async () => ({ productName: 'Acme', logos: { light: { src: '/brand/acme.svg' } } })) }
+      withProvider(provider)
+
+      await resolve(ALL_ORGS)
+
+      expect(provider.resolve).toHaveBeenCalledWith(expect.objectContaining({ tenantId: VIEWED_TENANT_ID, organizationId: null }))
+    })
+
+    it('gets no organization brand from the default provider', async () => {
+      const payload = await resolve(ALL_ORGS)
+
+      expect(payload.brand).toBeNull()
+      expect(payload.currentOrganization).toBeNull()
+    })
+  })
+
+  it('falls back to the organization logo when the provider throws', async () => {
+    withProvider({ resolve: jest.fn(async () => { throw new Error('provider down') }) })
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: ORG_ID,
+      name: 'Northwind Ltd',
+      logoUrl: 'https://cdn.example.com/logo.png',
+    })
+
+    const payload = await resolve()
+
+    expect(payload.brand).toEqual({
+      name: 'Northwind Ltd',
+      logo: { src: 'https://cdn.example.com/logo.png', alt: 'Northwind Ltd logo', preserveAspectRatio: false },
+    })
+    expect(mockLogger.warn).toHaveBeenCalledWith('Tenant branding provider failed; falling back', expect.objectContaining({ surface: 'backend' }))
   })
 })

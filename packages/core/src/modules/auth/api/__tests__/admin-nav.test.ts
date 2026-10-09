@@ -1,6 +1,18 @@
 /** @jest-environment node */
+type MockLogger = { debug: jest.Mock; info: jest.Mock; warn: jest.Mock; error: jest.Mock; child: () => MockLogger }
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/logger')
+  const logger: MockLogger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn(), child: () => logger }
+  return { ...actual, createLogger: () => logger, mockedLogger: logger }
+})
+
+const mockLogger = (jest.requireMock('@open-mercato/shared/lib/logger') as { mockedLogger: MockLogger }).mockedLogger
+
 import { GET } from '@open-mercato/core/modules/auth/api/admin/nav'
 import * as backendChrome from '@open-mercato/core/modules/auth/lib/backendChrome'
+import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
+import type { TenantBranding } from '@open-mercato/shared/lib/branding/tenantBranding'
 
 type AuthContext = {
   sub: string
@@ -55,7 +67,17 @@ const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
 const mockGetEffectiveFeatures = jest.fn<Promise<string[]>, [string, { tenantId: string | null; organizationId: string | null }]>()
 const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { tenantId: string | null; organizationId: string | null }]>()
 const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[]; ttl?: number }]>()
-const mockCacheGet = jest.fn<Promise<null>, [string]>()
+const mockCacheGet = jest.fn<Promise<unknown>, [string]>()
+type MockBrandingProvider = {
+  varyByHost?: boolean
+  resolve: (input: { host: string | null }) => Promise<TenantBranding | null>
+}
+const mockTenantBrandingProvider: { current: MockBrandingProvider | null } = { current: null }
+
+function lastNavCacheKeyRead(): string {
+  const navKeys = mockCacheGet.mock.calls.map(([key]) => key).filter((key) => key.startsWith('nav:sidebar:'))
+  return navKeys[navKeys.length - 1]
+}
 const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[]) => groups)
 const mockFindSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
 const mockLoadFirstRoleSidebarPreference = jest.fn<Promise<null>, [unknown, { roleIds: string[]; tenantId: string | null; locale: string }]>()
@@ -92,6 +114,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (key === 'cache') {
         return { get: mockCacheGet, set: mockCacheSet }
       }
+      if (key === 'tenantBrandingProvider') return mockTenantBrandingProvider.current
       return null
     },
   }),
@@ -103,6 +126,13 @@ jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', 
     mockFindSidebarPreference(em, scope),
   loadFirstRoleSidebarPreference: (em: unknown, scope: { roleIds: string[]; tenantId: string | null; locale: string }) =>
     mockLoadFirstRoleSidebarPreference(em, scope),
+}))
+
+const mockFindOneWithDecryption = jest.fn<Promise<unknown>, [unknown, unknown, { id?: string; tenant?: string }]>()
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/find'),
+  findOneWithDecryption: (em: unknown, entity: unknown, where: { id?: string; tenant?: string }) => mockFindOneWithDecryption(em, entity, where),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
@@ -507,7 +537,7 @@ describe('GET /api/auth/admin/nav', () => {
     await GET(new Request('http://localhost/api/auth/admin/nav', {
       headers: { cookie: 'om_selected_org=org-1' },
     }))
-    const concreteSelectionKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    const concreteSelectionKey = lastNavCacheKeyRead()
     expect(concreteSelectionKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:org-1$/)
     expect(concreteSelectionKey).not.toContain('nav:sidebar:v6:')
 
@@ -517,9 +547,101 @@ describe('GET /api/auth/admin/nav', () => {
     await GET(new Request('http://localhost/api/auth/admin/nav', {
       headers: { cookie: 'om_selected_org=__all__' },
     }))
-    const allOrganizationsKey = mockCacheGet.mock.calls[mockCacheGet.mock.calls.length - 1][0]
+    const allOrganizationsKey = lastNavCacheKeyRead()
     expect(allOrganizationsKey).toMatch(/^nav:sidebar:v7:[^:]+:pl:user-1:tenant-1:org-1:__all__$/)
     expect(allOrganizationsKey).not.toBe(concreteSelectionKey)
+  })
+
+  describe('brand outside the nav cache', () => {
+    const TENANT_UUID = '6f1c2f9e-3b0a-4f5e-9c1d-2a7b8c9d0e1f'
+    const ORG_UUID = '11111111-2222-4333-8444-555555555555'
+    const acme: TenantBranding = { productName: 'Acme', logos: { light: { src: '/brand/acme.png' } } }
+    let realCache = createCacheService({ strategy: 'memory' })
+
+    beforeEach(() => {
+      realCache = createCacheService({ strategy: 'memory' })
+      mockCacheGet.mockImplementation((key) => realCache.get(key))
+      mockCacheSet.mockImplementation(async (key, value, options) => { await realCache.set(key, value, options) })
+      mockGetBackendRouteManifests.mockReturnValue([])
+      mockEmFind.mockResolvedValue([])
+      mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_UUID, orgId: ORG_UUID, roles: [] })
+      mockResolveFeatureCheckContext.mockResolvedValue({
+        organizationId: ORG_UUID,
+        scope: { tenantId: TENANT_UUID, selectedId: ORG_UUID },
+        allowedOrganizationIds: [ORG_UUID],
+      })
+    })
+
+    afterEach(() => {
+      mockTenantBrandingProvider.current = null
+    })
+
+    async function brandAt(host: string): Promise<unknown> {
+      const response = await GET(new Request('http://localhost/api/auth/admin/nav', { headers: { host } }))
+      return ((await response.json()) as { brand: unknown }).brand
+    }
+
+    function clearBrandingEntries(): Promise<number> {
+      return runWithCacheTenant(TENANT_UUID, () => realCache.deleteByTags([`tenant-branding:tenant:${TENANT_UUID}`]))
+    }
+
+    it('follows the branding resolver when a provider succeeds, fails and recovers, never serving a brand from the nav cache', async () => {
+      let healthy = true
+      mockTenantBrandingProvider.current = {
+        resolve: async () => {
+          if (!healthy) throw new Error('provider down')
+          return acme
+        },
+      }
+      await expect(brandAt('acme.example.com')).resolves.toEqual({ name: 'Acme', logo: { src: '/brand/acme.png' } })
+      healthy = false
+      await clearBrandingEntries()
+      await expect(brandAt('acme.example.com')).resolves.toBeNull()
+      healthy = true
+      await clearBrandingEntries()
+      await expect(brandAt('acme.example.com')).resolves.toEqual({ name: 'Acme', logo: { src: '/brand/acme.png' } })
+
+      const navWrites = mockCacheSet.mock.calls.filter(([key]) => key.startsWith('nav:sidebar:'))
+      expect(navWrites).toHaveLength(1)
+      expect((navWrites[0][1] as { brand: unknown }).brand).toBeNull()
+      expect(mockLogger.warn).toHaveBeenCalledWith('Tenant branding provider failed; falling back', expect.objectContaining({ surface: 'backend' }))
+    })
+
+    it("on a nav cache hit, never hands the provider a selected organization outside the caller's access", async () => {
+      const INACCESSIBLE_ORG_UUID = '22222222-3333-4444-8555-666666666666'
+      mockResolveFeatureCheckContext.mockResolvedValue({
+        organizationId: null,
+        scope: { tenantId: TENANT_UUID, selectedId: null, allowedIds: [] },
+        allowedOrganizationIds: [],
+      })
+      mockGetSelectedOrganizationFromRequest.mockReturnValue(INACCESSIBLE_ORG_UUID)
+      mockFindOneWithDecryption.mockImplementation(async (_em, _entity, where) => (
+        where.tenant === TENANT_UUID && where.id === INACCESSIBLE_ORG_UUID ? { id: INACCESSIBLE_ORG_UUID, name: 'Restricted Ltd' } : null
+      ))
+      const resolveBrand = jest.fn(async (_input: { host: string | null }) => null)
+      mockTenantBrandingProvider.current = { resolve: resolveBrand }
+
+      await brandAt('acme.example.com')
+      await clearBrandingEntries()
+      await brandAt('acme.example.com')
+
+      expect(mockCacheSet.mock.calls.filter(([key]) => key.startsWith('nav:sidebar:'))).toHaveLength(1)
+      expect(resolveBrand).toHaveBeenLastCalledWith(expect.objectContaining({ tenantId: TENANT_UUID, organizationId: null }))
+    })
+
+    it('keeps one nav cache entry whatever hosts and brands a host-varying provider answers', async () => {
+      mockTenantBrandingProvider.current = {
+        varyByHost: true,
+        resolve: async ({ host }) => (host === 'acme.example.com' ? acme : null),
+      }
+      await expect(brandAt('Acme.Example.com')).resolves.toEqual({ name: 'Acme', logo: { src: '/brand/acme.png' } })
+      for (let index = 0; index < 20; index += 1) {
+        await expect(brandAt(`random-${index}-${Math.random().toString(36).slice(2)}.example.com`)).resolves.toBeNull()
+      }
+      await expect(brandAt('acme.example.com')).resolves.toEqual({ name: 'Acme', logo: { src: '/brand/acme.png' } })
+      expect(new Set(mockCacheGet.mock.calls.map(([key]) => key).filter((key) => key.startsWith('nav:sidebar:'))).size).toBe(1)
+      expect(mockCacheSet.mock.calls.filter(([key]) => key.startsWith('nav:sidebar:'))).toHaveLength(1)
+    })
   })
 
   it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {
