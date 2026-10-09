@@ -161,10 +161,10 @@ The pre-check runs **outside** `em.transactional`, so two concurrent `mercato au
 
 ## Tenant Branding
 
-Backend chrome branding resolves server-side through the `tenantBrandingProvider` DI key (contract: `@open-mercato/shared/lib/branding/tenantBranding`; spec: `.ai/specs/2026-10-05-tenant-branding-provider.md`; docs: `customization/tenant-branding`).
+Backend shell, portal shell and login branding resolve server-side through the `tenantBrandingProvider` DI key (contract: `@open-mercato/shared/lib/branding/tenantBranding`; spec: `.ai/specs/2026-10-05-tenant-branding-provider.md`; docs: `customization/tenant-branding`).
 
-- MUST resolve branding through `resolveTenantBranding` — never read `Organization.logoUrl` directly for chrome; the resolver caches per tenant, validates logos and `BrandStyle` contrast, and falls back to `defaultTenantBrandingProvider`.
+- MUST resolve branding through `resolveTenantBranding` (or `resolveBackendTenantBranding` / `resolveLoginTenantBranding` in `lib/tenantBranding.ts`) — never read `Organization.logoUrl` directly for chrome; the resolver caches per tenant, validates logos and `BrandStyle` contrast, and falls back to `defaultTenantBrandingProvider`.
 - MUST load the backend branding organization with `resolveBrandOrganization` (`lib/tenantBranding.ts`) wherever the backend brand is resolved: it loads the scoped organization, else a requested or own organization the caller's access allows, in the tenant (cached under the tenant branding tag), so another tenant's or an inaccessible organization never reaches a provider, and every backend surface then agrees with `/api/auth/admin/nav`.
 - MUST resolve the brand once per request and keep it out of longer-lived caches: `/api/auth/admin/nav` caches its payload without `brand` and attaches the resolver's brand per request.
-- MUST pass only tenant ids that come from a session or a database lookup; `host` reaches providers only when the provider sets `varyByHost`, and host-dependent results are never cached.
-- Call `invalidateTenantBrandingCache(container, tenantId)` when data a provider reads changes; `directory.organization.*` already does.
+- MUST treat `tenantId` on the `auth` surface and `host` on every surface as untrusted lookup keys: pass only tenant ids from a session or a database lookup (login tenants are verified); `host` reaches providers only when the provider sets `varyByHost`, and host-dependent results are never cached.
+- Call `invalidateTenantBrandingCache(container, tenantId)` when data a provider reads changes; `directory.organization.*` and `directory.tenant.*` already do.

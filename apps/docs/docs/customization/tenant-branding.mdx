@@ -5,9 +5,9 @@ description: Give every tenant its own product name, logos and brand colours at 
 
 # Brand each tenant
 
-A multi-tenant app often needs each tenant to look like its own product: the `acme` tenant on `acme.example.com` shows the Acme logo and name. Open Mercato resolves branding server-side through a tenant branding provider registered in the DI container. The backend sidebar takes its logo and brand name from the provider through the navigation payload (`/api/auth/admin/nav`).
+A multi-tenant app often needs each tenant to look like its own product: the `acme` tenant on `acme.example.com` shows the Acme logo and colours on the login page, in the customer portal and in the backend. Open Mercato resolves this **server-side, before first paint**, through a tenant branding provider registered in the DI container.
 
-An app that registers nothing keeps the built-in behaviour: the backend sidebar shows the selected organization's logo (set under **Settings → Branding**).
+An app that registers nothing keeps the built-in behaviour: the backend sidebar shows the selected organization's logo (set under **Settings → Branding**), and the portal and login page show the platform logo.
 
 ## The contract
 
@@ -46,13 +46,15 @@ export interface TenantBrandingProvider {
 | `tenantBrandingProvider` | `directory` module (aliases the default) | **Override this** in your app |
 | `defaultTenantBrandingProvider` | `directory` module | Built-in organization-logo provider, also the fallback |
 
-### Where the brand is used
+### Where each surface uses it
 
 | Surface | Tenant / organization passed in | Applied to |
 |---|---|---|
-| `backend` | the tenant and organization the backend is scoped to (same scope as the sidebar) | sidebar logo and brand name, through the `brand` of `/api/auth/admin/nav` (which also carries `darkLogo` and `mark`) |
+| `backend` | the tenant and organization the backend is scoped to (same scope as the sidebar) | sidebar logo (`mark` when collapsed), brand name, product name, brand style |
+| `portal` | the tenant and organization of the portal URL (`/<org-slug>/portal`) | portal header, sidebar and footer logo (`mark`, else `light`/`dark`), brand style. The header title stays the organization name |
+| `auth` | the `?tenant=` query parameter or the remembered login tenant, only when it is the UUID of an existing tenant; no organization | login logo, heading and brand style |
 
-The `portal` and `auth` surfaces, the `dark` and `mark` logos and the `style` are part of the contract and validated by the resolver; rendering them on the portal and login pages and before first paint is covered by the shells described in the [specification](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/2026-10-05-tenant-branding-provider.md).
+Client components receive only `productName` and `logos`; the style is rendered on the server.
 
 ## Register a provider
 
@@ -109,13 +111,21 @@ Logos from your provider render without the Next.js image optimiser, so they nee
 
 ## Brand colours
 
-`style` uses the same `BrandStyle` format as the design-system gallery and is validated with the same schema: only the `--primary` family and the brand accent tokens can be set, every value must be a `#rrggbb` hex colour, and `--primary-foreground` must reach a **4.5:1** WCAG contrast ratio against `--primary` and `--primary-hover` in both themes. A style that fails validation is dropped (the logos are kept) and a warning is logged.
+`style` uses the same `BrandStyle` format as the design-system gallery and is validated with the same schema: only the `--primary` family and the brand accent tokens can be set, every value must be a `#rrggbb` hex colour, and `--primary-foreground` must reach a **4.5:1** WCAG contrast ratio against `--primary` and `--primary-hover` in both themes. A style that fails validation is dropped (the logos are kept) and logged.
+
+The resolved style is server-rendered as `<style id="om-tenant-brand-style">` with `:root:not(.dark)` / `:root.dark` rules, so it wins over `globals.css` and `theme.css` and paints with the page — no flash of the default theme. `style.logo` is ignored for tenant branding; use `logos`.
+
+A brand style saved in the design-system gallery is a **per-browser preview**. It is applied in its own `<style id="om-brand-style">` with higher-specificity selectors (`html:root…`), so every token it sets wins over the tenant style in that browser while it is saved, and the tenant style shows again once it is cleared. Optional accent tokens the preview leaves unset (`--brand-lime`, `--brand-yellow`, `--brand-violet`, `--brand-violet-foreground`) keep the tenant's values. Neither element touches the other.
+
+## Login tenant
+
+The login page brands the tenant named by `?tenant=<uuid>` or the remembered login tenant cookie, after checking that the tenant exists (known tenants are cached for five minutes and dropped when the tenant changes). While `tenantBrandingProvider` is the built-in default, which never brands login, the page looks nothing up and, after its first render, does not even create a request container.
 
 ## Caching and invalidation
 
 Resolved branding is cached through the DI `cache` service for five minutes per surface, tenant and organization, tagged `tenant-branding:tenant:<tenantId>`; answers of the default provider and of a registered provider are cached under separate keys, `null` answers included. Results that depend on the host are not cached. After a registered provider fails — including a DI factory that throws — it is skipped for that tenant and organization for 30 seconds; a failure for a request that carries a host is not remembered at all, so one host never disables the provider for others, and such a provider is retried on every request. The built-in default provider is never skipped.
 
-`invalidateTenantBrandingCache(container, tenantId)` drops the tenant's entries and the tenant-less entries (for example a login page without a tenant). The backend navigation payload (`/api/auth/admin/nav`) is cached without its brand and takes the brand from the resolver on every request, so it follows invalidation and failure windows immediately. Organization changes (`directory.organization.*`) invalidate the tenant automatically. When your provider's own data changes, invalidate the tenant yourself:
+`invalidateTenantBrandingCache(container, tenantId)` drops the tenant's entries and the tenant-less entries (for example a login page without a tenant). The backend navigation payload (`/api/auth/admin/nav`) is cached without its brand and takes the brand from the resolver on every request, so it follows invalidation and failure windows immediately. Organization changes (`directory.organization.*`) and tenant changes (`directory.tenant.*`) invalidate the tenant automatically. When your provider's own data changes, invalidate the tenant yourself:
 
 ```ts
 import { invalidateTenantBrandingCache } from '@open-mercato/shared/lib/branding/resolveTenantBranding'
@@ -135,8 +145,15 @@ Custom server-rendered surfaces can reuse the same pipeline. Pass only tenant an
 
 ```ts
 import { resolveTenantBranding } from '@open-mercato/shared/lib/branding/resolveTenantBranding'
+import { toClientTenantBranding } from '@open-mercato/shared/lib/branding/tenantBranding'
+import { TenantBrandStyle } from '@open-mercato/ui/theme/TenantBrandStyle'
 
 const branding = await resolveTenantBranding(container, { tenantId, organizationId, host, surface: 'portal' })
+// <TenantBrandStyle brandStyle={branding?.style} />, and toClientTenantBranding(branding) for client components
 ```
 
-Resolve the branding once per request and pass it on rather than resolving it again in a callee.
+Resolve the branding once per request and pass it on rather than resolving it again in a callee: the backend layout, the portal layout and the login page each resolve it once.
+
+## Testing
+
+The monorepo app registers the test-only `branding_probe` provider only when `OM_TEST_BRANDING_PROBE_MODE=opt-in`, which the integration runner sets for its app processes. It brands tenants and organizations whose names start with `QA TC-BRANDING-001` and delegates everything else to the default provider; `TC-BRANDING-001` asserts the branded login, portal and backend documents in light and dark mode and skips when the probe is not registered. The probe is not part of scaffolded apps.

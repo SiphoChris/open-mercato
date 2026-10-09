@@ -99,7 +99,8 @@ a response your route chooses.
 
 ### Tenant branding provider (additive)
 
-Backend branding is now resolved through a new DI key, `tenantBrandingProvider` (contract in
+Branding of the backend shell, the customer portal shell and the login page is now resolved server-side
+through a new DI key, `tenantBrandingProvider` (contract in
 `@open-mercato/shared/lib/branding/tenantBranding`; guide: `customization/tenant-branding`). The
 `directory` module registers `defaultTenantBrandingProvider`, which reproduces the previous behaviour
 (the selected organization logo in the backend sidebar), and aliases `tenantBrandingProvider` to it.
@@ -110,11 +111,15 @@ on as the brand name). No action is required.
 New, additive surfaces:
 
 - DI keys `tenantBrandingProvider` and `defaultTenantBrandingProvider`; types `TenantBranding`,
-  `TenantBrandingLogo`, `TenantBrandingProvider` (with an optional `varyByHost`),
-  `TenantBrandingResolveInput`, `TenantBrandingSurface`; helpers `resolveTenantBranding`,
+  `ClientTenantBranding`, `TenantBrandingLogo`, `TenantBrandingProvider` (with an optional
+  `varyByHost`), `TenantBrandingResolveInput`, `TenantBrandingSurface`; helpers `resolveTenantBranding`,
   `readTenantBrandingHost`, `parseTenantBranding`, `invalidateTenantBrandingCache`,
-  `buildTenantBrandingCacheTag` and `organizationLogoUrlSchema` (the directory module's organization
-  logo rule, now shared).
+  `buildTenantBrandingCacheTag`, `toClientTenantBranding` and `organizationLogoUrlSchema` (the directory module's organization logo rule, now shared);
+  `brandStyleCss` gains an optional `{ layer: 'base' | 'preview' }`; `TenantBrandStyle`
+  (`@open-mercato/ui/theme/TenantBrandStyle`, rendered as `<style id="om-tenant-brand-style">`, prop
+  `brandStyle`).
+- Optional props: `AppShell` `initialBrand`, `PortalShell` `darkLogo`, `PortalLayoutShell` `branding`,
+  the login page (`@open-mercato/core/modules/auth/frontend/login`) `branding`, and `ShellLogo.unoptimized`.
 - `BackendChromeBrand` (and the `brand` of `GET /api/auth/admin/nav`) gains optional `darkLogo` and
   `mark`. Code that exhaustively destructures or re-serialises `brand` should pass the new fields through.
 - `BrandStyle`, `brandStyleCss` and the brand style schema now live in
@@ -135,6 +140,19 @@ Behaviour notes:
 - The brand organization is now chosen within the caller's organization access: a cookie or query
   organization, or the caller's own, is used only when that access allows it. Previously a principal
   with an empty organization ACL could see the name and logo of an organization outside it in the brand.
+- The design-system gallery's per-browser preview (`<style id="om-brand-style">`) now uses
+  `html:root…` selectors so it wins over a tenant brand style; it still wins over `globals.css` and
+  `theme.css` as before.
+- With the default provider, the backend sidebar shows the selected organization's logo on first paint
+  instead of after the nav request. `/login` reads its cookies, headers and search params to pick the
+  tenant; it was already rendered per request, because the root layout reads the locale cookie. While
+  only the built-in provider is active, login looks nothing up and creates no request container after
+  its first render.
+- A tenant change (`directory.tenant.*`) also drops the tenant's cached branding and login tenant check.
+- Standalone apps that keep their own copies of `src/app/(backend)/backend/layout.tsx`,
+  `src/app/(frontend)/layout.tsx` or `src/app/login/page.tsx` get server-rendered branding only after
+  mirroring the template changes; without them the backend still receives the provider's brand through
+  the nav payload.
 
 ### `directory.organizations.update` keeps `parentId` / `childIds` when they are omitted
 

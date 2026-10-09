@@ -567,9 +567,12 @@ Spec: [`.ai/specs/2026-10-05-tenant-branding-provider.md`](.ai/specs/2026-10-05-
 |---------|--------|----------------|
 | DI names | New `tenantBrandingProvider` (the app extension point; aliases the default) and `defaultTenantBrandingProvider` (the organization-logo provider), both registered by `directory` | ✓ ADDITIVE |
 | `BackendChromePayload.brand` / `BackendChromeBrand` | Comes from the provider (see §2); optional `darkLogo` and `mark` added | ✓ ADDITIVE |
-| Event subscribers | New `directory:invalidate-tenant-branding-cache` on `directory.organization.*` | ✓ ADDITIVE |
+| Event subscribers | New `directory:invalidate-tenant-branding-cache` on `directory.organization.*` and `directory:invalidate-tenant-branding-cache-on-tenant-change` on `directory.tenant.*` | ✓ ADDITIVE |
+| `brandStyleCss` | Optional second argument `{ layer?: 'base' | 'preview' }`; without it the output is unchanged | ✓ ADDITIVE |
+| Component props | Optional `AppShell` `initialBrand`, `PortalShell` `darkLogo`, `PortalLayoutShell` `branding`, login page `branding`, `ShellLogo.unoptimized`; a shell's own `logo` prop keeps its image-optimiser behaviour | ✓ ADDITIVE |
+| Env vars | New `OM_TEST_BRANDING_PROBE_MODE`: `opt-in` registers the monorepo app's test-only `branding_probe` provider; the integration runner sets it, nothing else reads it | ✓ ADDITIVE |
 | `@open-mercato/shared/lib/branding/*` | New import paths for the contract, the resolver and `BrandStyle`; `@open-mercato/ui/theme/brand-style` keeps re-exporting `BrandStyle` and `brandStyleCss` | ✓ ADDITIVE |
 | `GET /api/auth/admin/nav` | Same URL and response schema; the payload is cached without `brand`, which is attached per request | ✓ No shape change |
-| API routes, database schema, event IDs, ACL features, CLI commands, env vars | No change | ✓ n/a |
+| API routes, database schema, event IDs, ACL features, CLI commands | No change | ✓ n/a |
 
 **Migration path for existing modules**: none. Apps opt in by registering `tenantBrandingProvider` in `src/di.ts`.

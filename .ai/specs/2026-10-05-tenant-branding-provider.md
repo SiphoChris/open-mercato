@@ -1,6 +1,6 @@
 # Tenant Branding Provider
 
-- **Status:** PR A (contract, resolver, default provider, backend chrome — this branch, `feat/tenant-branding-provider`) implemented; PR B (shells, layouts, login, first paint — `feat/tenant-branding-shells`, building on PR A) follows as a second PR. Sections, rows and guarantees marked PR B describe that second PR and are not part of PR A.
+- **Status:** Implemented — PR A (contract, resolver, default provider, backend chrome) and PR B (shells, layouts, login, first paint; branch `feat/tenant-branding-shells`, building on PR A). Sections, rows and guarantees marked PR B are delivered by this branch.
 - **Scope:** OSS (`@open-mercato/shared`, `@open-mercato/ui`, `@open-mercato/core`, `apps/mercato`, create-app template, docs)
 - **Follows up:** [`2026-07-05-ds-theming-and-brand-customization.md`](2026-07-05-ds-theming-and-brand-customization.md) (runtime per-tenant theming was its declared non-goal), [`2026-06-08-organization-sidebar-logo.md`](2026-06-08-organization-sidebar-logo.md) (the organization logo channel this spec generalises)
 - **Risk:** `risk-high` (authentication surfaces, tenant and organization scoping of the backend chrome, and a new shared contract; every change is additive) · **Priority:** `priority-medium`
@@ -296,7 +296,7 @@ All changes are additive; `UPGRADE_NOTES.md` (0.8.0 → 0.8.1) lists the new DI 
 - DS: no status colours, no arbitrary values; logo switching uses the `dark:` variant on `display` only.
 - Template sync: backend layout, frontend layout, login page and their tests mirrored into `packages/create-app/template`; the `branding_probe` module is monorepo-only (`MONOREPO_ONLY_MODULE_IDS` keeps its source and registration out of the template), is listed as app-only in `agent-instruction-budget.test.ts`, and is named in the anti-blueprint oracle and the `om-module-scaffold` skill (`yarn template:sync` passes).
 - Integration coverage: PR A — `packages/core/src/modules/directory/__integration__/TC-DIR-019-tenant-branding-default-provider.spec.ts` (default provider: the nav `brand` from the organization's name and logo on a cache miss and a cache hit, a logo change without waiting for a TTL, no brand without a logo). PR B — `packages/core/src/modules/directory/__integration__/TC-DIR-020-tenant-branding-first-paint.spec.ts` (default provider: server-rendered organization logo, invalidation of branding and nav caches, default login) and `apps/mercato/src/modules/branding_probe/__integration__/TC-BRANDING-001-registered-provider.spec.ts` (registered provider: branded login, portal and backend documents, light and dark raster logos with a query string, tenant colours, product name; skips when the probe is not registered, via `GET /api/branding_probe/status`).
-- Integration results: `TC-DIR-019` — 2 passed on the ephemeral Docker stack. `TC-DIR-020` and `TC-BRANDING-001` ship with PR B.
+- Integration results: `TC-DIR-019` — 2 passed on the ephemeral Docker stack; `TC-DIR-020` and `TC-BRANDING-001` — see the PR description.
 - Upgrade notes: `UPGRADE_NOTES.md` → 0.8.0 → 0.8.1 → Tenant branding provider.
 
 ## Changelog
