@@ -4694,6 +4694,12 @@ const newFeatureNegatives: ReadonlyArray<readonly [string, (root: string) => voi
       'and modelled on ratelimit_probe',
     ))
   }, 'plan.rejects.ratelimit-probe-blueprint'],
+  ['a plan that treats the branding probe as a blueprint', (root) => {
+    rewriteNewFeatureSpec(root, (spec) => spec.replace(
+      'and adapted into the new stock_transfers module',
+      'and modelled on branding_probe',
+    ))
+  }, 'plan.rejects.branding-probe-blueprint'],
   ['a traceability table with fewer rows than added surfaces', (root) => {
     rewriteNewFeatureSpec(root, (spec) => spec
       .replace(/\| REQ-002 \|[^\n]*\n/, '')

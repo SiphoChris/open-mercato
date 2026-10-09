@@ -457,7 +457,7 @@ test('module scaffold owns the one-way canonical-example handoff', () => {
   )
   assert.match(
     skill,
-    /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe`, or add direct cross-module ORM relationships/,
+    /Do not scaffold empty placeholders, copy the `example` tree, reuse `ratelimit_probe` or `branding_probe`, or add direct cross-module ORM relationships/,
   )
 })
 

@@ -194,6 +194,11 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
 // it to every scaffolded app is a deliberate maintainer call (it needs an evaluation-catalog
 // case before module-facts-build.test.ts will accept it).
 const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds'] as const
+// App modules that exist for monorepo test runs only: neither their source nor their registration
+// reaches the template. `branding_probe` overrides the app-owned `tenantBrandingProvider` DI key
+// when OM_TEST_BRANDING_PROBE_MODE=opt-in, so a scaffold must never ship it.
+export const MONOREPO_ONLY_MODULE_IDS = ['branding_probe'] as const
+const MONOREPO_ONLY_SOURCE_IGNORES = MONOREPO_ONLY_MODULE_IDS.map((moduleId) => `modules/${moduleId}/**`)
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
 const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
 
@@ -265,7 +270,7 @@ function stripEnabledModuleEntry(content: string, moduleId: string, rel: string)
 }
 
 function stripTemplateDisabledModules(content: string, rel: string): string {
-  const stripped = TEMPLATE_DISABLED_MODULE_IDS.reduce(
+  const stripped = [...TEMPLATE_DISABLED_MODULE_IDS, ...MONOREPO_ONLY_MODULE_IDS].reduce(
     (current, moduleId) => stripEnabledModuleEntry(current, moduleId, rel),
     content,
   )
@@ -428,7 +433,7 @@ function collectSourceFiles(): string[] {
       cwd: APP_SRC_ROOT,
       absolute: true,
       nodir: true,
-      ignore: ['**/node_modules/**', '**/.DS_Store'],
+      ignore: ['**/node_modules/**', '**/.DS_Store', ...MONOREPO_ONLY_SOURCE_IGNORES],
     }),
   )
   const rootFiles = SYNC_ROOT_FILES

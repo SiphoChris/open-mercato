@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { TEMPLATE_COMMENTED_MODULES, TEMPLATE_CONTENT_TRANSFORMS } from '../../../../scripts/template-sync.ts'
+import { MONOREPO_ONLY_MODULE_IDS, TEMPLATE_COMMENTED_MODULES, TEMPLATE_CONTENT_TRANSFORMS } from '../../../../scripts/template-sync.ts'
 
 // `packages/create-app/template/src/modules.ts` deliberately diverges from
 // `apps/mercato/src/modules.ts`: design_system/example are stripped outright, while
@@ -56,5 +56,25 @@ test('modules.ts transform keeps every commented module commented out, not delet
       new RegExp(`^ {2}${escapeForRegExp(registration)}`, 'm'),
       `${moduleId} must not remain enabled in the template`,
     )
+  }
+})
+
+test('monorepo-only modules ship neither their source nor their registration in the template', () => {
+  const appContent = fs.readFileSync(APP_MODULES_FILE, 'utf8')
+  const transformed = TEMPLATE_CONTENT_TRANSFORMS['modules.ts'](appContent)
+  const templateSourceRoot = path.join(REPO_ROOT, 'packages', 'create-app', 'template', 'src')
+  const templateFiles = fs.readdirSync(templateSourceRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(entry.parentPath, entry.name))
+
+  for (const moduleId of MONOREPO_ONLY_MODULE_IDS) {
+    assert.ok(appContent.includes(`{ id: '${moduleId}',`), `${moduleId} must stay registered in apps/mercato`)
+    assert.ok(!transformed.includes(moduleId), `${moduleId} must not appear in the template modules.ts`)
+    assert.ok(
+      !fs.existsSync(path.join(templateSourceRoot, 'modules', moduleId)),
+      `${moduleId} source must not be copied into the template`,
+    )
+    const referencing = templateFiles.filter((file) => fs.readFileSync(file, 'utf8').includes(moduleId))
+    assert.deepEqual(referencing, [], `template files must not reference ${moduleId}`)
   }
 })

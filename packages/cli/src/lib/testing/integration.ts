@@ -2209,6 +2209,9 @@ function buildReusableEnvironment(
     // other spec. Same shape as the auth rate-limit escape hatch above: inert unless a request
     // also carries the `om_test_browser_telemetry=on` cookie, which only TC-TELEMETRY-002 sets.
     OM_TEST_BROWSER_TELEMETRY_MODE: 'opt-in',
+    // Registers the monorepo app's test-only branding_probe tenant branding provider, which only
+    // brands records named for TC-BRANDING-001 and delegates everything else to the default provider.
+    OM_TEST_BRANDING_PROBE_MODE: 'opt-in',
     OM_DISABLE_EMAIL_DELIVERY: '0',
     OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
     OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
@@ -3611,6 +3614,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // other spec. Same shape as the auth rate-limit escape hatch above: inert unless a request
       // also carries the `om_test_browser_telemetry=on` cookie, which only TC-TELEMETRY-002 sets.
       OM_TEST_BROWSER_TELEMETRY_MODE: 'opt-in',
+      // Registers the monorepo app's test-only branding_probe tenant branding provider, which only
+      // brands records named for TC-BRANDING-001 and delegates everything else to the default provider.
+      OM_TEST_BRANDING_PROBE_MODE: 'opt-in',
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
       OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
       OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,

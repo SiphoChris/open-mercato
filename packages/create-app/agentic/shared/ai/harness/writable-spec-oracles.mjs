@@ -95,6 +95,7 @@ const SHADOW_MODULE_PATTERNS = Object.freeze([
   { id: 'shadow-teaching-module', pattern: /\b(?:new|second|another|own)\s+(?:teaching|example|demo|reference|sample)\s+module\b/i },
   { id: 'whole-example-copy', pattern: /\bcopy(?:ing)?\s+(?:the\s+)?(?:whole|entire|complete|full)\s+(?:example|reference)\s+(?:module|tree|directory)\b|\bcp\s+-r\s+src\/modules\/example\b/i },
   { id: 'ratelimit-probe-blueprint', pattern: /\bratelimit_probe\b/i },
+  { id: 'branding-probe-blueprint', pattern: /\bbranding_probe\b/i },
 ])
 // Fixed by the spec-first routing contract, which owns this vocabulary. `pending-emission` is
 // deliberately absent: it is a lifecycle marker on the canonical ledger, not a statement about
