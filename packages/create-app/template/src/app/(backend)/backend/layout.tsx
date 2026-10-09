@@ -15,6 +15,10 @@ import { BrowserTelemetry } from '@open-mercato/telemetry/browser'
 import { resolveBrowserTelemetryConfig } from '@open-mercato/telemetry/browser/server'
 import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
 import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
+import { resolveBackendTenantBranding } from '@open-mercato/core/modules/auth/lib/tenantBranding'
+import { readTenantBrandingHost } from '@open-mercato/shared/lib/branding/resolveTenantBranding'
+import { toBackendChromeBrand } from '@open-mercato/shared/lib/branding/tenantBranding'
+import { TenantBrandStyle } from '@open-mercato/ui/theme/TenantBrandStyle'
 
 function collectStaticSettingsPathPrefixes(): string[] {
   const prefixes = new Set<string>()
@@ -96,7 +100,13 @@ export default async function BackendLayout({
     grantedFeatures,
     unrestricted: auth?.isSuperAdmin === true,
   })
-  const baseProductName = translate('appShell.productName', 'Open Mercato')
+  const tenantBranding = await resolveBackendTenantBranding({
+    auth,
+    request: { cookies: cookieStore },
+    host: readTenantBrandingHost(headerStore),
+  })
+  const initialBrand = toBackendChromeBrand(tenantBranding)
+  const baseProductName = (initialBrand ? tenantBranding?.productName : undefined) ?? translate('appShell.productName', 'Open Mercato')
   const productName = deployEnv && deployEnv !== 'local'
     ? `${baseProductName} (${deployEnv.charAt(0).toUpperCase() + deployEnv.slice(1)})`
     : baseProductName
@@ -115,8 +125,10 @@ export default async function BackendLayout({
 
   return (
     <I18nProvider locale={locale} dict={dict} localeLocked={resolveForcedLocale(process.env) !== null} supportedLocales={supportedLocales}>
+      <TenantBrandStyle brandStyle={tenantBranding?.style} />
       <AppShell
         productName={productName}
+        initialBrand={initialBrand}
         email={auth?.email}
         canManageUpgradeActions={canManageUpgradeActions}
         groups={[]}

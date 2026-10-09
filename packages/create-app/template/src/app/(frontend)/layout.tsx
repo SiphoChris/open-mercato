@@ -8,6 +8,9 @@ import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/
 import { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
+import { readTenantBrandingHost, resolveTenantBranding } from '@open-mercato/shared/lib/branding/resolveTenantBranding'
+import { toClientTenantBranding, type TenantBranding } from '@open-mercato/shared/lib/branding/tenantBranding'
+import { TenantBrandStyle } from '@open-mercato/ui/theme/TenantBrandStyle'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 type LayoutProps = {
@@ -77,6 +80,7 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   let portalEnabled = true
   let portalAccessDenied = false
   let customerAuthMatchesUrlOrg = false
+  let branding: TenantBranding | null = null
 
   try {
     const container = await createRequestContainer()
@@ -115,6 +119,15 @@ export default async function FrontendLayout({ children }: LayoutProps) {
       if (result.ok && result.value === false) {
         portalEnabled = false
       }
+    }
+
+    if (!portalAccessDenied && portalEnabled && tenantId) {
+      branding = await resolveTenantBranding(container, {
+        tenantId,
+        organizationId,
+        host: readTenantBrandingHost(headerStore),
+        surface: 'portal',
+      })
     }
 
     if (!portalAccessDenied && customerAuthMatchesUrlOrg && customerAuth) {
@@ -164,17 +177,21 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   const authenticatedChrome = customerAuthMatchesUrlOrg && (!isPublic || isPortalRoot)
 
   return (
-    <PortalLayoutShell
-      orgSlug={orgSlug}
-      organizationName={orgName}
-      tenantId={tenantId}
-      organizationId={organizationId}
-      authenticated={authenticatedChrome}
-      userName={authenticatedChrome ? userName : null}
-      userEmail={authenticatedChrome ? userEmail : null}
-      customerAuth={authenticatedChrome ? customerAuth : null}
-    >
-      {children}
-    </PortalLayoutShell>
+    <>
+      <TenantBrandStyle brandStyle={branding?.style} />
+      <PortalLayoutShell
+        orgSlug={orgSlug}
+        organizationName={orgName}
+        tenantId={tenantId}
+        organizationId={organizationId}
+        authenticated={authenticatedChrome}
+        userName={authenticatedChrome ? userName : null}
+        userEmail={authenticatedChrome ? userEmail : null}
+        customerAuth={authenticatedChrome ? customerAuth : null}
+        branding={toClientTenantBranding(branding)}
+      >
+        {children}
+      </PortalLayoutShell>
+    </>
   )
 }
