@@ -55,6 +55,7 @@ import { AiDockProvider } from '../ai/AiDock'
 import { AiChatSessionsProvider } from '../ai/AiChatSessions'
 import { AiAssistantLauncher } from '../ai/AiAssistantLauncher'
 import { BackendChromeProvider, useBackendChrome } from './BackendChromeProvider'
+import type { BackendChromeBrand } from '@open-mercato/shared/modules/navigation/backendChrome'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -97,6 +98,11 @@ export type ShellLogo = {
 export type AppShellProps = {
   productName?: string
   logo?: ShellLogo
+  /**
+   * Server-resolved brand (same shape as the backend chrome `brand`) rendered on first paint, until
+   * the backend chrome payload arrives and takes over. See `toBackendChromeBrand`.
+   */
+  initialBrand?: BackendChromeBrand | null
   email?: string
   canManageUpgradeActions?: boolean
   groups: {
@@ -191,18 +197,24 @@ function shouldBypassLogoOptimization(src?: string | null): boolean {
   return /^https?:\/\//.test(value) || /^\/api\/attachments\/(?:image|file)\//.test(value)
 }
 
-function ShellBrandLogo({
+function withExtraClass(className: string, extraClassName?: string): string {
+  return extraClassName ? `${className} ${extraClassName}` : className
+}
+
+function ShellBrandLogoImage({
   logo,
   brandName,
   unoptimized,
   compact = false,
   mobile = false,
+  extraClassName,
 }: {
   logo?: ShellLogo
   brandName: string
   unoptimized?: boolean
   compact?: boolean
   mobile?: boolean
+  extraClassName?: string
 }) {
   const src = logo?.src ?? '/open-mercato.svg'
   const alt = logo?.alt ?? brandName
@@ -215,7 +227,7 @@ function ShellBrandLogo({
         alt={alt}
         width={mobile ? 28 : 40}
         height={mobile ? 28 : 40}
-        className={`${mobile ? 'rounded' : 'rounded-full'} shrink-0 object-cover`}
+        className={withExtraClass(`${mobile ? 'rounded' : 'rounded-full'} shrink-0 object-cover`, extraClassName)}
         unoptimized={unoptimized ? true : undefined}
       />
     )
@@ -235,9 +247,54 @@ function ShellBrandLogo({
       alt={alt}
       width={width}
       height={height}
-      className={className}
+      className={withExtraClass(className, extraClassName)}
       unoptimized={unoptimized ? true : undefined}
     />
+  )
+}
+
+function ShellBrandLogo({
+  logo,
+  darkLogo,
+  mark,
+  brandName,
+  unoptimized,
+  compact = false,
+  mobile = false,
+}: {
+  logo?: ShellLogo
+  darkLogo?: ShellLogo
+  mark?: ShellLogo
+  brandName: string
+  unoptimized?: boolean
+  compact?: boolean
+  mobile?: boolean
+}) {
+  if (compact && mark?.src) {
+    return (
+      <ShellBrandLogoImage
+        logo={mark}
+        brandName={brandName}
+        compact
+        unoptimized
+      />
+    )
+  }
+  if (!darkLogo?.src) {
+    return <ShellBrandLogoImage logo={logo} brandName={brandName} unoptimized={unoptimized} compact={compact} mobile={mobile} />
+  }
+  return (
+    <>
+      <ShellBrandLogoImage logo={logo} brandName={brandName} unoptimized={unoptimized} compact={compact} mobile={mobile} extraClassName="dark:hidden" />
+      <ShellBrandLogoImage
+        logo={darkLogo}
+        brandName={brandName}
+        unoptimized
+        compact={compact}
+        mobile={mobile}
+        extraClassName="hidden dark:inline-block"
+      />
+    </>
   )
 }
 
@@ -586,7 +643,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellBody({ productName, logo, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, hideFooter = false, progressCompletedAutoHideMs }: AppShellProps) {
+function AppShellBody({ productName, logo, initialBrand, email, canManageUpgradeActions = false, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, version, settingsSectionTitle, settingsPathPrefixes = [], settingsSections, profileSections, profileSectionTitle, profilePathPrefixes = [], mobileSidebarSlot, hideFooter = false, progressCompletedAutoHideMs }: AppShellProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const t = useT()
@@ -607,11 +664,15 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   useEventBridge() // SSE DOM Event Bridge — singleton SSE connection for real-time server events
   const resolvedProductName = productName ?? t('appShell.productName')
   const brandStyle = useBrandStyle()
-  const resolvedLogo = brandStyle?.logo ? { src: brandStyle.logo, preserveAspectRatio: true } : chromePayload?.brand?.logo?.src ? chromePayload.brand.logo : logo
-  const resolvedBrandName = chromePayload?.brand?.logo?.src
-    ? chromePayload.brand.name ?? resolvedProductName
+  const activeBrand = chromePayload ? chromePayload.brand : initialBrand
+  const activeBrandLogo = activeBrand?.logo?.src ? activeBrand.logo : null
+  const resolvedLogo = brandStyle?.logo ? { src: brandStyle.logo, preserveAspectRatio: true } : activeBrandLogo ?? logo
+  const resolvedDarkLogo = !brandStyle?.logo && activeBrandLogo && activeBrand?.darkLogo?.src ? activeBrand.darkLogo : undefined
+  const resolvedMark = !brandStyle?.logo && activeBrandLogo && activeBrand?.mark?.src ? activeBrand.mark : undefined
+  const resolvedBrandName = activeBrandLogo
+    ? activeBrand?.name ?? resolvedProductName
     : resolvedProductName
-  const resolvedLogoBypassesOptimization = (Boolean(chromePayload?.brand?.logo?.src) && resolvedLogo === chromePayload?.brand?.logo) || shouldBypassLogoOptimization(resolvedLogo?.src)
+  const resolvedLogoBypassesOptimization = (activeBrandLogo !== null && resolvedLogo === activeBrandLogo) || shouldBypassLogoOptimization(resolvedLogo?.src)
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // When the mobile drawer opens on a settings/profile route, it follows the
   // section sidebar by default. Set to 'main' to force-show the main nav even
@@ -921,7 +982,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
+              <ShellBrandLogo logo={resolvedLogo} darkLogo={resolvedDarkLogo} mark={resolvedMark} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
@@ -1063,7 +1124,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
                 aria-label={t('appShell.goToDashboard')}
               >
-                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
+                <ShellBrandLogo logo={resolvedLogo} darkLogo={resolvedDarkLogo} mark={resolvedMark} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
                 {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
               </Link>
             </div>
@@ -1129,7 +1190,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
+              <ShellBrandLogo logo={resolvedLogo} darkLogo={resolvedDarkLogo} mark={resolvedMark} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
@@ -1656,7 +1717,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
               <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} mobile unoptimized={resolvedLogoBypassesOptimization} />
+                <ShellBrandLogo logo={resolvedLogo} darkLogo={resolvedDarkLogo} mark={resolvedMark} brandName={resolvedBrandName} mobile unoptimized={resolvedLogoBypassesOptimization} />
                 <span className="truncate">{resolvedBrandName}</span>
               </Link>
               <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>

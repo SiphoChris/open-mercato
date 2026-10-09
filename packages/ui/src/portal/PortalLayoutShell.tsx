@@ -1,8 +1,9 @@
 "use client"
 import type { ReactNode } from 'react'
 import type { CustomerAuthContext } from '@open-mercato/shared/modules/customer-auth'
+import type { ClientTenantBranding, TenantBrandingLogo } from '@open-mercato/shared/lib/branding/tenantBranding'
 import { PortalProvider } from './PortalContext'
-import PortalShell from './PortalShell'
+import PortalShell, { type ShellLogo } from './PortalShell'
 
 type PortalLayoutShellProps = {
   children: ReactNode
@@ -14,6 +15,12 @@ type PortalLayoutShellProps = {
   userName: string | null
   userEmail: string | null
   customerAuth: CustomerAuthContext | null
+  /** Server-resolved tenant branding. The portal header is a square slot: `mark` wins over `light`/`dark`. */
+  branding?: ClientTenantBranding | null
+}
+
+function toShellLogo(logo: TenantBrandingLogo | undefined): ShellLogo | undefined {
+  return logo?.src ? { src: logo.src, alt: logo.alt, unoptimized: true } : undefined
 }
 
 /**
@@ -38,7 +45,11 @@ export function PortalLayoutShell({
   userName,
   userEmail,
   customerAuth,
+  branding,
 }: PortalLayoutShellProps) {
+  const logos = branding?.logos
+  const logo = toShellLogo(logos?.mark ?? logos?.light)
+  const darkLogo = logos?.mark ? undefined : toShellLogo(logos?.dark)
   return (
     <PortalProvider
       orgSlug={orgSlug}
@@ -56,6 +67,8 @@ export function PortalLayoutShell({
         organizationName={organizationName ?? undefined}
         userName={userName ?? undefined}
         userEmail={userEmail ?? undefined}
+        logo={logo}
+        darkLogo={darkLogo}
       >
         {children}
       </PortalShell>

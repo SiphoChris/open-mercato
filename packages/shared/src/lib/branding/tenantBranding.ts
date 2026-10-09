@@ -25,6 +25,12 @@ export type TenantBranding = {
   style?: BrandStyle
 }
 
+/** The part of a branding that client components receive; the style is server-rendered only. */
+export type ClientTenantBranding = {
+  productName?: string
+  logos?: TenantBrandingLogos
+}
+
 export type TenantBrandingResolveInput = {
   tenantId: string | null
   organizationId: string | null
@@ -167,6 +173,20 @@ export function parseTenantBranding(value: unknown): TenantBrandingParseResult {
 
 function pickLogo(logo: TenantBrandingLogo): TenantBrandingLogo {
   return { src: logo.src, alt: logo.alt, preserveAspectRatio: logo.preserveAspectRatio }
+}
+
+export function toClientTenantBranding(branding: TenantBranding | null | undefined): ClientTenantBranding | null {
+  if (!branding) return null
+  const clientBranding: ClientTenantBranding = {}
+  if (branding.productName !== undefined) clientBranding.productName = branding.productName
+  if (branding.logos) {
+    clientBranding.logos = {
+      light: pickLogo(branding.logos.light),
+      ...(branding.logos.dark ? { dark: pickLogo(branding.logos.dark) } : {}),
+      ...(branding.logos.mark ? { mark: pickLogo(branding.logos.mark) } : {}),
+    }
+  }
+  return clientBranding.productName === undefined && !clientBranding.logos ? null : clientBranding
 }
 
 export function toBackendChromeBrand(branding: TenantBranding | null | undefined): BackendChromeBrand | null {

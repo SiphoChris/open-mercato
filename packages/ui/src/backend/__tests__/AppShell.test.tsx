@@ -264,6 +264,135 @@ describe('AppShell', () => {
     expect(screen.getByAltText('Original brand')).toHaveAttribute('src', '/original-logo.png')
   })
 
+  it('renders the server-resolved initial brand with a dark-mode logo before the chrome loads', () => {
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        initialBrand={{
+          name: 'Acme Workspace',
+          logo: { src: '/brand/acme.svg', alt: 'Acme logo' },
+          darkLogo: { src: '/brand/acme-dark.svg', alt: 'Acme dark logo' },
+        }}
+      >
+        <div>Body</div>
+      </AppShell>,
+      { dict },
+    )
+    const light = screen.getAllByAltText('Acme logo')[0]
+    const dark = screen.getAllByAltText('Acme dark logo')[0]
+    expect(light).toHaveAttribute('src', '/brand/acme.svg')
+    expect(light).toHaveClass('dark:hidden')
+    expect(dark).toHaveAttribute('src', '/brand/acme-dark.svg')
+    expect(dark).toHaveClass('hidden', 'dark:inline-block')
+    expect(screen.getAllByText('Acme Workspace').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('img').some(image => image.getAttribute('src') === '/open-mercato.svg')).toBe(false)
+  })
+
+  it.each([
+    ['an upper-case absolute url', 'HTTPS://cdn.example.com/acme.png', 'true'],
+    ['an attachment url', '/api/attachments/image/abc', 'true'],
+    ['a root-relative path', '/brand/acme.png', 'true'],
+    ['an upper-case svg path', '/brand/logo.SVG', 'true'],
+    ['a data url', 'data:image/png;base64,aGVsbG8=', 'true'],
+  ])('renders %s from the initial brand through the right image loader', (_label, src, unoptimized) => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups} initialBrand={{ name: 'Acme', logo: { src, alt: 'Acme logo' } }}>
+        <div>Body</div>
+      </AppShell>,
+      { dict },
+    )
+    const logo = screen.getAllByAltText('Acme logo')[0]
+    expect(logo).toHaveAttribute('src', src)
+    expect(logo).toHaveAttribute('data-unoptimized', unoptimized)
+  })
+
+  it('shows the brand mark in the collapsed sidebar', () => {
+    renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        sidebarCollapsedDefault
+        initialBrand={{
+          name: 'Acme Workspace',
+          logo: { src: '/brand/acme.svg', alt: 'Acme logo' },
+          mark: { src: '/brand/acme-mark.svg', alt: 'Acme mark' },
+        }}
+      >
+        <div>Body</div>
+      </AppShell>,
+      { dict },
+    )
+    expect(screen.getAllByAltText('Acme mark')[0]).toHaveAttribute('src', '/brand/acme-mark.svg')
+    expect(screen.queryByAltText('Acme logo')).not.toBeInTheDocument()
+  })
+
+  it('hands over from the initial brand to the backend chrome brand once it loads', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        brand: { name: 'Northwind', logo: { src: '/brand/northwind.svg', alt: 'Northwind logo' } },
+        groups,
+        settingsSections: [],
+        settingsPathPrefixes: [],
+        profileSections: [],
+        profilePathPrefixes: [],
+        grantedFeatures: [],
+        roles: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    ) as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={[]}
+          adminNavApi="/api/auth/admin/nav-initial-brand-handover"
+          initialBrand={{ name: 'Acme', logo: { src: '/brand/acme.svg', alt: 'Acme logo' }, darkLogo: { src: '/brand/acme-dark.svg', alt: 'Acme dark logo' } }}
+        >
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+      expect(screen.getAllByAltText('Acme logo')[0]).toHaveAttribute('src', '/brand/acme.svg')
+
+      await waitFor(() => {
+        expect(screen.getAllByAltText('Northwind logo')[0]).toHaveAttribute('src', '/brand/northwind.svg')
+      })
+      expect(screen.queryByAltText('Acme logo')).not.toBeInTheDocument()
+      expect(screen.queryByAltText('Acme dark logo')).not.toBeInTheDocument()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
+  it('keeps the per-browser gallery logo above the tenant brand', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups} initialBrand={{ name: 'Acme', logo: { src: '/brand/acme.svg', alt: 'Acme logo' } }}>
+        <div>Body</div>
+      </AppShell>,
+      { dict },
+    )
+    const logo = 'data:image/png;base64,aGVsbG8='
+    act(() => saveBrandStyle({
+      version: 1,
+      logo,
+      light: { '--primary': '#124488', '--primary-hover': '#113366', '--primary-foreground': '#FFFFFF' },
+      dark: { '--primary': '#AACCFF', '--primary-hover': '#88AADD', '--primary-foreground': '#000000' },
+    }))
+    expect(screen.getAllByRole('img').some(image => image.getAttribute('src') === logo)).toBe(true)
+    expect(screen.queryByAltText('Acme logo')).not.toBeInTheDocument()
+    act(() => saveBrandStyle(null))
+    expect(screen.getAllByAltText('Acme logo')[0]).toHaveAttribute('src', '/brand/acme.svg')
+  })
+
   it('hides the backend footer status bar when requested', () => {
     renderWithProviders(
       <AppShell

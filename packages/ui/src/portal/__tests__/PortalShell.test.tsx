@@ -37,7 +37,9 @@ jest.mock('next/link', () => {
   ))
 })
 
-jest.mock('next/image', () => (props: any) => <img alt={props.alt} {...props} />)
+jest.mock('next/image', () => ({ priority, unoptimized, ...imageProps }: React.ImgHTMLAttributes<HTMLImageElement> & { priority?: boolean; unoptimized?: boolean }) => (
+  <img {...imageProps} alt={imageProps.alt} data-priority={priority ? 'true' : 'false'} data-unoptimized={unoptimized ? 'true' : 'false'} />
+))
 
 jest.mock('next/navigation', () => ({
   usePathname: () => '/acme/portal/orders',
@@ -316,5 +318,107 @@ describe('PortalShell', () => {
 
     expect(screen.getByRole('button', { name: 'Log Out' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Log In' })).not.toBeInTheDocument()
+  })
+})
+
+describe('PortalShell tenant branding', () => {
+  function renderPublicLayout(branding?: React.ComponentProps<typeof PortalLayoutShell>['branding']) {
+    return render(
+      <PortalLayoutShell
+        orgSlug="acme"
+        organizationName="Acme"
+        tenantId="tenant-1"
+        organizationId="org-1"
+        authenticated={false}
+        userName={null}
+        userEmail={null}
+        customerAuth={null}
+        branding={branding}
+      >
+        <div>Login form</div>
+      </PortalLayoutShell>,
+    )
+  }
+
+  it('keeps the platform logo without branding', () => {
+    const { container } = renderPublicLayout()
+    const sources = Array.from(container.querySelectorAll('img')).map((image) => image.getAttribute('src'))
+    expect(sources.length).toBeGreaterThan(0)
+    expect(sources.every((src) => src === '/open-mercato.svg')).toBe(true)
+  })
+
+  it('renders the tenant light and dark logos from the layout branding', () => {
+    renderPublicLayout({
+      logos: {
+        light: { src: '/brand/acme.svg', alt: 'Acme' },
+        dark: { src: '/brand/acme-dark.svg', alt: 'Acme dark' },
+      },
+    })
+    const light = screen.getAllByAltText('Acme')
+    const dark = screen.getAllByAltText('Acme dark')
+    expect(light[0]).toHaveAttribute('src', '/brand/acme.svg')
+    expect(light[0]).toHaveClass('dark:hidden')
+    expect(dark[0]).toHaveAttribute('src', '/brand/acme-dark.svg')
+    expect(dark[0]).toHaveClass('hidden', 'dark:inline-block')
+    expect(light).toHaveLength(dark.length)
+  })
+
+  it('prefers the square mark for the portal header slot', () => {
+    renderPublicLayout({
+      logos: {
+        light: { src: '/brand/acme.svg', alt: 'Acme wordmark' },
+        dark: { src: '/brand/acme-dark.svg', alt: 'Acme dark' },
+        mark: { src: '/brand/acme-mark.svg', alt: 'Acme mark' },
+      },
+    })
+    expect(screen.getAllByAltText('Acme mark')[0]).toHaveAttribute('src', '/brand/acme-mark.svg')
+    expect(screen.queryByAltText('Acme wordmark')).not.toBeInTheDocument()
+    expect(screen.queryByAltText('Acme dark')).not.toBeInTheDocument()
+  })
+
+  it('preloads no header logo variant when a dark logo exists, leaving both lazy so only the visible one loads', () => {
+    render(
+      <PortalShell orgSlug="acme" organizationName="Acme" authenticated={false} logo={{ src: '/brand/acme.svg', alt: 'Acme' }} darkLogo={{ src: '/brand/acme-dark.svg', alt: 'Acme dark' }}>
+        <div>Public</div>
+      </PortalShell>,
+    )
+    const header = [screen.getAllByAltText('Acme')[0], screen.getAllByAltText('Acme dark')[0]]
+    for (const image of header) {
+      expect(image).toHaveAttribute('data-priority', 'false')
+      expect(image).not.toHaveAttribute('loading', 'eager')
+    }
+    for (const image of document.querySelectorAll('img')) expect(image).toHaveAttribute('data-priority', 'false')
+  })
+
+  it('keeps preloading the header logo when there is no dark logo', () => {
+    render(
+      <PortalShell orgSlug="acme" organizationName="Acme" authenticated={false} logo={{ src: '/brand/acme.svg', alt: 'Acme' }}>
+        <div>Public</div>
+      </PortalShell>,
+    )
+    const header = screen.getAllByAltText('Acme')[0]
+    expect(header).toHaveAttribute('data-priority', 'true')
+    expect(header).not.toHaveAttribute('loading')
+  })
+
+  it('accepts a dark logo directly on PortalShell', () => {
+    render(
+      <PortalShell orgSlug="acme" organizationName="Acme" authenticated={false} logo={{ src: '/brand/acme.svg', alt: 'Acme' }} darkLogo={{ src: '/brand/acme-dark.svg', alt: 'Acme dark' }}>
+        <div>Public</div>
+      </PortalShell>,
+    )
+    expect(screen.getAllByAltText('Acme dark')[0]).toHaveAttribute('src', '/brand/acme-dark.svg')
+  })
+
+  it("keeps a caller's own logo on the image optimiser, while the same path from branding bypasses it", () => {
+    const view = render(
+      <PortalShell orgSlug="acme" organizationName="Acme" authenticated={false} logo={{ src: '/my-logo.png', alt: 'Own logo' }}>
+        <div>Public</div>
+      </PortalShell>,
+    )
+    for (const image of screen.getAllByAltText('Own logo')) expect(image).toHaveAttribute('data-unoptimized', 'false')
+    view.unmount()
+    renderPublicLayout({ logos: { light: { src: '/my-logo.png', alt: 'Branded logo' } } })
+    for (const image of screen.getAllByAltText('Branded logo')) expect(image).toHaveAttribute('data-unoptimized', 'true')
   })
 })

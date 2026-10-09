@@ -54,8 +54,17 @@ export function parseBrandStyle(value: unknown): BrandStyle | null {
   return result.success ? result.data : null
 }
 
-export function brandStyleCss(style: BrandStyle): string {
+export type BrandStyleCssOptions = {
+  /**
+   * `preview` raises the selectors' specificity (`html:root…`) so a per-browser preview wins over a
+   * server-rendered tenant brand style regardless of document order. Defaults to the plain selectors.
+   */
+  layer?: 'base' | 'preview'
+}
+
+export function brandStyleCss(style: BrandStyle, options: BrandStyleCssOptions = {}): string {
   const parsed = brandStyleSchema.parse(style)
-  const rule = (selector: string, tokens: Record<string, string | undefined>) => `${selector}{${Object.entries(tokens).filter(([, value]) => value).map(([key, value]) => `${key}:${value};`).join('')}}`
+  const prefix = options.layer === 'preview' ? 'html' : ''
+  const rule = (selector: string, tokens: Record<string, string | undefined>) => `${prefix}${selector}{${Object.entries(tokens).filter(([, value]) => value).map(([key, value]) => `${key}:${value};`).join('')}}`
   return `${rule(':root:not(.dark)', parsed.light)}\n${rule(':root.dark', parsed.dark)}`
 }

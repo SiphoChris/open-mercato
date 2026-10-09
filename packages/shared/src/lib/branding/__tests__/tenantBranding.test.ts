@@ -16,6 +16,7 @@ import {
   organizationLogoUrlSchema,
   parseTenantBranding,
   toBackendChromeBrand,
+  toClientTenantBranding,
   type TenantBranding,
   type TenantBrandingProvider,
   type TenantBrandingResolveInput,
@@ -251,6 +252,14 @@ describe('logo and host helpers', () => {
     })
     expect(toBackendChromeBrand(null)).toBeNull()
     expect(toBackendChromeBrand({ productName: 'Acme' })).toBeNull()
+  })
+
+  it('gives client components the logos and product name only', () => {
+    const clientBranding = toClientTenantBranding(acmeBranding)
+    expect(clientBranding).toEqual({ productName: acmeBranding.productName, logos: acmeBranding.logos })
+    expect(Object.keys(clientBranding ?? {})).toEqual(['productName', 'logos'])
+    expect(toClientTenantBranding({ style })).toBeNull()
+    expect(toClientTenantBranding(null)).toBeNull()
   })
 })
 

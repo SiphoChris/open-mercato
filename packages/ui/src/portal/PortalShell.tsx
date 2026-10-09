@@ -26,6 +26,8 @@ export const PORTAL_USER_MENU_HANDLE = 'section:portal:user-menu'
 export type ShellLogo = {
   src: string
   alt?: string
+  /** Render without the Next.js image optimiser, as for provider-supplied branding logos. */
+  unoptimized?: boolean
 }
 
 export type PortalShellProps = {
@@ -36,6 +38,8 @@ export type PortalShellProps = {
   organizationName?: string
   /** Override the brand logo rendered in the header, footer, and sidebar. */
   logo?: ShellLogo
+  /** Logo rendered instead of `logo` under the `.dark` theme. */
+  darkLogo?: ShellLogo
   /** Whether to show authenticated layout. Auto-detected from context when omitted. */
   authenticated?: boolean
   /** Logout handler. Auto-provided from context when omitted. */
@@ -45,6 +49,38 @@ export type PortalShellProps = {
   userName?: string
   /** Override user email. Auto-read from context when omitted. */
   userEmail?: string
+}
+
+function PortalBrandLogo({
+  logo,
+  darkLogo,
+  size,
+  priority = false,
+}: {
+  logo?: ShellLogo
+  darkLogo?: ShellLogo
+  size: number
+  priority?: boolean
+}) {
+  const hasDarkVariant = Boolean(darkLogo?.src)
+  const renderImage = (source: ShellLogo | undefined, className: string) => (
+    <Image
+      src={source?.src ?? "/open-mercato.svg"}
+      alt={source?.alt ?? ""}
+      width={size}
+      height={size}
+      className={className}
+      priority={priority && !hasDarkVariant ? true : undefined}
+      unoptimized={source?.unoptimized ? true : undefined}
+    />
+  )
+  if (!hasDarkVariant) return renderImage(logo, "")
+  return (
+    <>
+      {renderImage(logo, "dark:hidden")}
+      {renderImage(darkLogo, "hidden dark:inline-block")}
+    </>
+  )
 }
 
 function PortalEventBridgeMount() {
@@ -168,6 +204,7 @@ export function PortalShell({
   orgSlug: orgSlugProp,
   organizationName: orgNameProp,
   logo,
+  darkLogo,
   authenticated: authenticatedProp,
   onLogout: onLogoutProp,
   enableEventBridge = false,
@@ -274,7 +311,7 @@ export function PortalShell({
                 auth route the root is across the public/authenticated boundary, and only a
                 full page load re-runs the layout that hands the session back (#6362). */}
             <a href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={28} height={28} className="" priority />
+              <PortalBrandLogo logo={logo} darkLogo={darkLogo} size={28} priority />
               <span className="text-base font-semibold tracking-tight">{headerTitle}</span>
             </a>
             <nav aria-label="Primary" className="flex items-center gap-1">
@@ -297,7 +334,7 @@ export function PortalShell({
         <footer className="border-t" data-portal-handle={PORTAL_FOOTER_HANDLE}>
           <div className="mx-auto flex w-full max-w-screen-lg items-center justify-between px-6 py-6">
             <a href={portalHome} className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground">
-              <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={20} height={20} className="" />
+              <PortalBrandLogo logo={logo} darkLogo={darkLogo} size={20} />
               <span className="text-sm font-medium text-foreground">{headerTitle}</span>
             </a>
             <p className="text-xs text-muted-foreground/60">
@@ -315,7 +352,7 @@ export function PortalShell({
     <div className="flex h-full flex-col" data-portal-handle={PORTAL_SIDEBAR_HANDLE}>
       <div className="flex h-16 items-center gap-2.5 border-b px-5">
         <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-          <Image src={logo?.src ?? "/open-mercato.svg"} alt={logo?.alt ?? ""} width={22} height={22} className="" />
+          <PortalBrandLogo logo={logo} darkLogo={darkLogo} size={22} />
           <span className="text-sm font-semibold tracking-tight truncate">{headerTitle}</span>
         </Link>
       </div>

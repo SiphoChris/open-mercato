@@ -1,11 +1,12 @@
 import { brandStyleSchema, type BrandStyle } from '@open-mercato/shared/lib/branding/brandStyle'
 
 export { brandStyleCss } from '@open-mercato/shared/lib/branding/brandStyle'
-export type { BrandStyle } from '@open-mercato/shared/lib/branding/brandStyle'
+export type { BrandStyle, BrandStyleCssOptions } from '@open-mercato/shared/lib/branding/brandStyle'
 
 export const BRAND_STYLE_STORAGE_KEY = 'om-brand-style-v1'
 export const BRAND_STYLE_EVENT = 'om-brand-style-change'
 export const BRAND_STYLE_ELEMENT_ID = 'om-brand-style'
+export const TENANT_BRAND_STYLE_ELEMENT_ID = 'om-tenant-brand-style'
 
 let cachedRaw: string | null | undefined
 let cachedStyle: BrandStyle | null = null

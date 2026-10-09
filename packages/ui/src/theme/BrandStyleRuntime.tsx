@@ -10,7 +10,7 @@ export function BrandStyleRuntime() {
     if (!style) return
     const element = document.createElement('style')
     element.id = BRAND_STYLE_ELEMENT_ID
-    element.textContent = brandStyleCss(style)
+    element.textContent = brandStyleCss(style, { layer: 'preview' })
     document.head.appendChild(element)
     return () => element.remove()
   }, [style])
